@@ -13,6 +13,7 @@ sobre un inmueble en la Oficina de Registro de Instrumentos Publicos.
 - numero_escritura: Numero de la escritura publica de cancelacion
 - fecha: Fecha de otorgamiento de la escritura
 - notaria: Nombre completo de la notaria (ej: "Notaria 45 del Circulo de Bogota")
+- resolucion_nombramiento: Resolucion del nombramiento del lider experiencia empleado (si aparece)
 - ciudad: Ciudad de la notaria
 - departamento: Departamento
 
@@ -45,9 +46,10 @@ Para cada deudor extraer:
 
 ### Informacion del Inmueble:
 Para cada inmueble que servia como garantia:
-- matricula_inmobiliaria: Numero completo de matricula
+- matricula_inmobiliaria: Numero de folio / matricula completa (ej: "050C-12345678")
+- oficina_matricula: Oficina de expedicion de la matricula inmobiliaria (ej: "Bogota", "Medellin", etc.)
 - circulo_registral: Circulo registral
-- direccion: Direccion del inmueble
+- direccion: Direccion catastral completa del inmueble
 - ciudad: Ciudad
 - departamento: Departamento
 - tipo_inmueble: Casa, apartamento, lote, etc.
@@ -72,6 +74,8 @@ Para cada inmueble que servia como garantia:
 5. Si hay multiples inmuebles, incluye todos en la lista
 6. Si hay multiples deudores, incluye todos en la lista
 7. Distingue entre la escritura de CONSTITUCION y la de CANCELACION
+8. El campo `resolucion_nombramiento` puede aparecer en el encabezado o en el cuerpo; extraelo textualmente.
+9. El campo `oficina_matricula` generalmente se menciona junto con el numero de matricula (ej: "Matricula No. 050C-12345678 de la Oficina de Bogota").
 
 ## ENTIDADES FINANCIERAS COMUNES:
 - Bancolombia S.A.
