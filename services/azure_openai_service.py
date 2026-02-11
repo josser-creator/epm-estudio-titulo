@@ -52,7 +52,8 @@ class AzureOpenAIService(BaseService):
             max_tokens: Maximo de tokens en la respuesta.
 
         Returns:
-            dict: Datos estructurados extraidos del documento.
+            dict: Datos estructurados extraidos del documento,
+                  con las claves en el formato de alias definido en el schema.
         """
         try:
             schema_json = schema_class.model_json_schema()
@@ -83,7 +84,8 @@ class AzureOpenAIService(BaseService):
                 tokens_used=response.usage.total_tokens if response.usage else 0
             )
 
-            return validated_data.model_dump()
+            # Usar by_alias=True para exportar con los alias definidos
+            return validated_data.model_dump(by_alias=True, exclude_none=False)
 
         except json.JSONDecodeError as e:
             self._log_error("Failed to parse JSON response", error=e)
