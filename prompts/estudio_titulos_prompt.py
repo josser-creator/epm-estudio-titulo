@@ -17,6 +17,7 @@ verificando la cadena de propietarios, gravamenes, limitaciones y la viabilidad 
 
 ### Informacion del Inmueble:
 - matricula_inmobiliaria: Numero completo de matricula (ej: "050C-12345678")
+- fecha_expedicion_matricula: Fecha de expedicion del certificado de tradicion y libertad (importante)
 - direccion: Direccion completa del inmueble
 - tipo_inmueble: Casa, apartamento, lote, local comercial, bodega, etc.
 - area_construida: Area construida en metros cuadrados
@@ -46,7 +47,7 @@ Para cada anotacion en el folio de matricula extraer:
 - personas_a: Quien adquiere o se beneficia (adquirente)
 
 ### Gravamenes:
-Para cada gravamen activo extraer:
+Para cada gravamen registrado sobre el inmueble extraer:
 - tipo: Hipoteca, embargo, condicion resolutoria, etc.
 - beneficiario: Entidad o persona beneficiaria
 - monto: Monto del gravamen si esta disponible
@@ -55,11 +56,35 @@ Para cada gravamen activo extraer:
 - estado: Vigente, cancelado, en proceso de cancelacion
 
 ### Limitaciones al Dominio:
+Para cada limitacion al dominio extraer:
 - tipo: Usufructo, uso, habitacion, servidumbre, etc.
 - descripcion: Descripcion de la limitacion
 - beneficiario: Quien se beneficia
 - fecha: Fecha de constitucion
 - estado: Vigente o cancelada
+
+### --- NUEVOS CAMPOS REQUERIDOS POR EL NEGOCIO (TEXTO CONSOLIDADO) ---
+
+**Titulo de adquisicion:**
+- Extrae el titulo mediante el cual el/los propietarios actuales adquirieron el inmueble (ej: "Escritura Publica No. 1234 del 15/03/2020 de la Notaria 10 de Bogota").
+
+**Gravamenes (texto consolidado):**
+- Redacta un resumen claro de TODOS los gravamenes vigentes que afectan el inmueble, incluyendo tipo, beneficiario, monto, fecha y numero de anotacion. Si hay varios, enlistalos.
+
+**Limitacion al dominio (texto):**
+- Describe las limitaciones al dominio vigentes (usufructo, uso, habitacion, servidumbre, condicion resolutoria, etc.). Incluye beneficiario, fecha y anotacion.
+
+**Afectacion al dominio (texto):**
+- Describe las afectaciones al dominio distintas a gravamenes (ej: afectacion a vivienda familiar, patrimonio de familia, etc.).
+
+**Medida cautelar (texto):**
+- Describe las medidas cautelares vigentes (embargos, demandas, prohibiciones, etc.). Incluye numero de anotacion, autoridad que decreta y fecha.
+
+**Tenencia (texto):**
+- Extrae cualquier informacion relevante sobre la tenencia del inmueble (posesion, mera tenencia, arrendamiento, etc.).
+
+**Documentos revisados (texto multilinea):**
+- Enumera todos los documentos que fueron revisados para elaborar el estudio (certificado de tradicion, escrituras, poderes, paz y salvos, etc.). Debe ser un texto extenso si es necesario.
 
 ### Concepto y Observaciones:
 - concepto_juridico: Concepto sobre la viabilidad del negocio (favorable, desfavorable, condicionado)
@@ -72,8 +97,9 @@ Para cada gravamen activo extraer:
 3. Mantén los formatos originales de fechas y montos
 4. Para matriculas, incluye el codigo del circulo (ej: "050C-", "001-")
 5. En tradicion, ordena las anotaciones cronologicamente
-6. Identifica claramente gravamenes VIGENTES vs CANCELADOS
+6. Identifica claramente gravamenes VIGENTES vs CANCELADOS (los cancelados no se incluyen en el campo de gravamenes vigentes, pero pueden ser extraidos en la lista estructurada con estado "cancelado")
 7. El concepto juridico debe reflejar la conclusion del profesional
+8. Los campos de texto consolidado (gravamenes_texto, limitacion_dominio, etc.) deben ser redactados de forma clara, completa y en lenguaje natural, como si un abogado los hubiera escrito.
 
 ## FORMATO DE RESPUESTA:
 Responde UNICAMENTE con el JSON estructurado segun el schema proporcionado.
