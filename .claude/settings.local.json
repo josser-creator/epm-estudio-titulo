@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venvScriptspython.exe -m pip uninstall cffi -y)",
+      "Bash(\"C:\\\\Users\\\\DanielBedoyaSolano\\\\OneDrive - DATAKNOW S.A.S\\\\Documentos\\\\PROYECTOS\\\\Function\\\\.venv\\\\Scripts\\\\python.exe\" -m pip install --force-reinstall azure-storage-blob)",
+      "Bash(\"C:\\\\Users\\\\DanielBedoyaSolano\\\\OneDrive - DATAKNOW S.A.S\\\\Documentos\\\\PROYECTOS\\\\Function\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import _cffi_backend; print\\(''cffi OK''\\); from azure.storage.blob import BlobServiceClient; print\\(''azure-storage-blob OK''\\)\")",
+      "Bash(func start)",
+      "Bash(cmd /c \".venv\\\\Scripts\\\\activate && func start\")",
+      "Bash(powershell -Command:*)"
+    ]
+  }
+}
