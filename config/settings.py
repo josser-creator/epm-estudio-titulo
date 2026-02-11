@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     path_minuta_cancelacion: str = "bronze/conecta/vivienda/minuta_de_cancelacion"
     path_minuta_constitucion: str = "bronze/conecta/vivienda/minuta_de_constitucion"
 
+    # Azure Cosmos DB
+    cosmos_endpoint: str = Field(default="", alias="COSMOS_ENDPOINT")
+    cosmos_key: str = Field(default="", alias="COSMOS_KEY")
+    cosmos_database_name: str = Field(default="conecta-db", alias="COSMOS_DATABASE_NAME")
+    cosmos_container_name: str = Field(default="procesamientos", alias="COSMOS_CONTAINER_NAME")
+
     class Config:
         env_file = ".env"
         case_sensitive = False
