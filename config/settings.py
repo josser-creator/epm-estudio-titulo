@@ -24,9 +24,9 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = Field(default="2024-02-15-preview", alias="AZURE_OPENAI_API_VERSION")
 
     # Rutas de sistemas
-    path_estudio_titulos: str = "bronze/conecta/vivienda/estudio_titulos"
-    path_minuta_cancelacion: str = "bronze/conecta/vivienda/minuta_cancelacion"
-    path_minuta_constitucion: str = "bronze/conecta/vivienda/minuta_constitucion"
+    path_estudio_titulos: str = "bronze/conecta/vivienda/estudio_de_titulos"
+    path_minuta_cancelacion: str = "bronze/conecta/vivienda/minuta_de_cancelacion"
+    path_minuta_constitucion: str = "bronze/conecta/vivienda/minuta_de_constitucion"
 
     class Config:
         env_file = ".env"
