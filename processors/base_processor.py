@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from services import DocumentIntelligenceService, AzureOpenAIService, DataLakeService
 from config import get_settings
+from utils.json_cleaner import JsonCleaner
 
 
 class BaseDocumentProcessor(ABC):
@@ -183,3 +184,63 @@ class BaseDocumentProcessor(ABC):
 
         # Construir ruta: conecta/[sistema]/[nombre_archivo]_[timestamp].json
         return f"conecta/{self.system_name}/{base_name}_{timestamp}.json"
+    
+    def process(self, pdf_bytes: bytes, source_path: str) -> dict:
+        try:
+            self.logger.info(f"Empezando el proceso para {self.system_name}: {source_path}")
+            start_time = datetime.now()
+
+            # Paso 1: OCR con Document Intelligence
+            ocr_result = self._doc_intelligence.analyze_document(pdf_bytes)
+            document_text = ocr_result.get("content", "")
+
+            if not document_text.strip():
+                raise ValueError("El Document Intelligence devolvio contenido vacio")
+
+            # Paso 2: Extracción estructurada con OpenAI
+            extracted_data = self._openai.extract_structured_data(
+                document_text=document_text,
+                system_prompt=self.system_prompt,
+                schema_class=self.schema_class
+            )
+
+            # Limpieza y estandarización de los datos extraídos 
+            self.logger.info("Paso 2.5: Limpiando y estandarizando datos extraidos")
+            cleaned_data = self._clean_extracted_data(extracted_data)
+
+            # Paso 3: Enriquecer con metadata de procesamiento
+            self.logger.info("Paso 3: Enriqueciendo con metada el proceso")
+            enriched_data = self._enrich_metadata(cleaned_data, source_path, ocr_result)
+
+            # Paso 4: Validaciones adicionales (específicas por tipo)
+            self.logger.info("Paso 4: Ejecutando validaciones adicionales")
+            validated_data = self._validate_extracted_data(enriched_data)
+
+            processing_time = (datetime.now() - start_time).total_seconds()
+            self.logger.info(f"Proceso completado en {processing_time:.2f} segundos")
+
+            return validated_data
+
+        except Exception as e:
+            self.logger.error(f"Proceso fallido por {source_path}: {str(e)}")
+            raise
+
+    def _clean_extracted_data(self, data: dict) -> dict:
+        # Limpieza genérica
+        data = super()._clean_extracted_data(data)
+        
+        # Limpieza específica para propietarios (identificaciones)
+        if "propietarios" in data:
+            for prop in data["propietarios"]:
+                if "identificacion" in prop and prop["identificacion"]:
+                    id_clean = JsonCleaner.clean_identification(prop["identificacion"])
+                    prop["tipo_identificacion"] = id_clean["tipo"]
+                    prop["identificacion"] = id_clean["numero"]
+        
+        # Limpieza de porcentajes
+        if "propietarios" in data:
+            for prop in data["propietarios"]:
+                if "porcentaje_propiedad" in prop:
+                    prop["porcentaje_propiedad"] = JsonCleaner.clean_percentage(prop["porcentaje_propiedad"])
+        
+        return data
