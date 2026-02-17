@@ -88,7 +88,6 @@ class InmuebleInfo(BaseModel):
         description="Departamento donde se ubica el inmueble"
     )
 
-
 class Propietario(BaseModel):
     """Informacion de un propietario."""
 
@@ -117,7 +116,6 @@ class Propietario(BaseModel):
         alias="VIV_estadoCivil",                 
         description="Estado civil del propietario"
     )
-
 
 class AnotacionTradicion(BaseModel):
     """Informacion de una anotacion en la tradicion."""

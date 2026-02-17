@@ -63,8 +63,6 @@ Para cada limitacion al dominio extraer:
 - fecha: Fecha de constitucion
 - estado: Vigente o cancelada
 
-### --- NUEVOS CAMPOS REQUERIDOS POR EL NEGOCIO (TEXTO CONSOLIDADO) ---
-
 **Titulo de adquisicion:**
 - Extrae el titulo mediante el cual el/los propietarios actuales adquirieron el inmueble (ej: "Escritura Publica No. 1234 del 15/03/2020 de la Notaria 10 de Bogota").
 

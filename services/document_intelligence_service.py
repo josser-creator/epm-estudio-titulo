@@ -5,7 +5,6 @@ from azure.core.credentials import AzureKeyCredential
 from .base_service import BaseService
 from config import get_settings
 
-
 class DocumentIntelligenceService(BaseService):
     """Servicio para procesar documentos PDF usando Azure Document Intelligence."""
 
