@@ -1,3 +1,9 @@
+"""
+Azure Functions App para procesamiento de documentos legales.
+Blob Triggers para estudio de títulos, minutas de cancelación y constitución.
+Timer Trigger para limpieza automática del contenedor bronze.
+"""
+
 import azure.functions as func
 import logging
 import uuid
@@ -43,8 +49,19 @@ def persistir_resultados(
     subpath: str
 ) -> str:
     """
-    Guarda los resultados del procesamiento en Data Lake (Silver) y Cosmos DB.
-    Retorna la ruta relativa dentro del contenedor silver.
+    Guarda los resultados en Data Lake (Silver) y Cosmos DB.
+
+    Args:
+        extracted_data: Datos extraídos (formato plano con PanelFields).
+        caso_id: Identificador del caso.
+        process_id: ID único del proceso.
+        tipo_documento: Tipo de documento (partición en Cosmos DB).
+        archivo_origen: Ruta original del blob.
+        processor_name: Nombre del procesador (etiqueta).
+        subpath: Ruta relativa en silver (ej: "conecta/vivienda/...").
+
+    Returns:
+        Ruta relativa del archivo guardado en silver.
     """
     json_result = {
         "metadata": {
@@ -74,9 +91,7 @@ def persistir_resultados(
         "tipoDocumento": tipo_documento,
         "fechaProcesamiento": dt.now().isoformat(),
         "archivoOrigen": archivo_origen,
-        "rutasDataLake": {
-            "silver": silver_full_path,
-        },
+        "rutasDataLake": {"silver": silver_full_path},
         "datosExtraidos": extracted_data,
         "_etiquetas": {
             "sistema": "conecta",
@@ -99,7 +114,12 @@ def process_blob(
     tipo_key: str,
 ):
     """
-    Función genérica para procesar blobs de documentos legales.
+    Procesa un blob de un tipo específico (genérico).
+
+    Args:
+        blob: Blob entrante.
+        processor_class: Clase del procesador (ej: EstudioTitulosProcessor).
+        tipo_key: Clave en BLOB_TIPO_MAP (ej: "EstudioTitulos").
     """
     blob_name = blob.name
     logger.info(f"Blob Trigger activado: {blob_name} (tipo: {tipo_key})")
@@ -151,6 +171,7 @@ def process_blob(
     connection="AzureWebJobsStorage",
 )
 def estudio_titulos_blob(blob: func.InputStream):
+    """Blob Trigger para Estudio de Títulos."""
     process_blob(blob, EstudioTitulosProcessor, "EstudioTitulos")
 
 @app.blob_trigger(
@@ -159,6 +180,7 @@ def estudio_titulos_blob(blob: func.InputStream):
     connection="AzureWebJobsStorage",
 )
 def minuta_cancelacion_blob(blob: func.InputStream):
+    """Blob Trigger para Minuta de Cancelación."""
     process_blob(blob, MinutaCancelacionProcessor, "MinutaCancelacion")
 
 @app.blob_trigger(
@@ -167,6 +189,7 @@ def minuta_cancelacion_blob(blob: func.InputStream):
     connection="AzureWebJobsStorage",
 )
 def minuta_constitucion_blob(blob: func.InputStream):
+    """Blob Trigger para Minuta de Constitución."""
     process_blob(blob, MinutaConstitucionProcessor, "MinutaConstitucion")
 
 # ============================================================
@@ -176,8 +199,8 @@ def minuta_constitucion_blob(blob: func.InputStream):
 @app.timer_trigger(schedule="0 0 1 * * *", arg_name="myTimer", run_on_startup=False)
 def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
     """
-    Función programada que elimina archivos del contenedor bronze con antigüedad > bronze_retention_days.
-    Se ejecuta diariamente a la 1:00 AM UTC.
+    Timer diario (1:00 AM UTC) que elimina archivos del contenedor bronze
+    con antigüedad superior a bronze_retention_days (configurable).
     """
     logger.info("Iniciando limpieza automática de bronze")
     try:
@@ -185,7 +208,6 @@ def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
         cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=retention_days)
         logger.info(f"Eliminando archivos anteriores a {cutoff_date.isoformat()}")
 
-        # Crear cliente de Data Lake directamente para listar archivos
         account_url = f"https://{settings.datalake_account_name}.dfs.core.windows.net"
         data_lake_client = DataLakeServiceClient(
             account_url=account_url,
@@ -193,7 +215,6 @@ def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
         )
         file_system_client = data_lake_client.get_file_system_client(settings.datalake_container_bronze)
 
-        # Listar todas las rutas (archivos y directorios) de forma recursiva
         paths = file_system_client.get_paths(recursive=True)
         deleted_count = 0
         for path in paths:
