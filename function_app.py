@@ -1,8 +1,11 @@
 import azure.functions as func
 import logging
 import uuid
-from datetime import datetime
+import datetime
+from datetime import datetime as dt
 import os
+
+from azure.storage.filedatalake import DataLakeServiceClient
 
 from processors import (
     EstudioTitulosProcessor,
@@ -24,8 +27,6 @@ cosmos = CosmosDBService()
 app = func.FunctionApp()
 
 # Mapeo para Blob Triggers: (tipo_corto, clase_procesador, prefijo_id, subpath)
-# - tipo_corto: se usará como partition key en Cosmos DB y como identificador del tipo.
-# - subpath: ruta relativa dentro del contenedor silver (sin el contenedor).
 BLOB_TIPO_MAP = {
     "EstudioTitulos": ("estudio_titulos", EstudioTitulosProcessor, "ET", "conecta/vivienda/estudio-titulos"),
     "MinutaCancelacion": ("minuta_cancelacion", MinutaCancelacionProcessor, "MINC", "conecta/vivienda/minuta-cancelacion"),
@@ -45,16 +46,15 @@ def persistir_resultados(
     Guarda los resultados del procesamiento en Data Lake (Silver) y Cosmos DB.
     Retorna la ruta relativa dentro del contenedor silver.
     """
-    # Estructura del resultado final con metadata
     json_result = {
         "metadata": {
-            "fecha_procesamiento": datetime.now().isoformat(),
+            "fecha_procesamiento": dt.now().isoformat(),
             "proceso_id": process_id,
             "caso_id": caso_id,
             "tipo_documento": tipo_documento,
             "archivo_origen": archivo_origen,
         },
-        "datos_extraidos": extracted_data,   # Aquí va el JSON plano (con PanelFields)
+        "datos_extraidos": extracted_data,
     }
 
     # --- Data Lake (Silver) ---
@@ -71,11 +71,11 @@ def persistir_resultados(
         "id": process_id,
         "procesoId": process_id,
         "casoId": caso_id,
-        "tipoDocumento": tipo_documento,          # Partition Key
-        "fechaProcesamiento": datetime.now().isoformat(),
+        "tipoDocumento": tipo_documento,
+        "fechaProcesamiento": dt.now().isoformat(),
         "archivoOrigen": archivo_origen,
         "rutasDataLake": {
-            "silver": silver_full_path,            # Ruta completa (container + relative)
+            "silver": silver_full_path,
         },
         "datosExtraidos": extracted_data,
         "_etiquetas": {
@@ -104,36 +104,27 @@ def process_blob(
     blob_name = blob.name
     logger.info(f"Blob Trigger activado: {blob_name} (tipo: {tipo_key})")
 
-    # Validar extensión
     if not blob_name.lower().endswith(".pdf"):
         logger.warning(f"Saltando archivo no-PDF: {blob_name}")
         return
 
-    # Leer contenido
     pdf_bytes = blob.read()
     if len(pdf_bytes) == 0:
         logger.error(f"Blob vacío recibido: {blob_name}")
         return
 
-    # Obtener datos del mapeo
     tipo_corto, processor_class, prefijo_id, subpath = BLOB_TIPO_MAP[tipo_key]
 
-    # Extraer nombre base del archivo (sin ruta ni extensión) para caso_id
-    nombre_base = os.path.basename(blob_name)                     # "documento.pdf"
-    caso_id = nombre_base.replace(".pdf", "").replace("_", "-")   # Ej: "HV-JOSSER-CORDOBA-RIVAS"
-    # Nota: Reemplazamos guiones bajos por guiones medios para evitar problemas en rutas
-
+    nombre_base = os.path.basename(blob_name)
+    caso_id = nombre_base.replace(".pdf", "").replace("_", "-")
     process_id = f"{prefijo_id}-{uuid.uuid4()}"
     logger.info(f"Iniciando procesamiento: process_id={process_id}, caso={caso_id}")
 
     try:
-        # Instanciar procesador
         processor = processor_class()
-        # El método process ya debe devolver los datos planos según el schema correspondiente
         extracted_data = processor.process(pdf_bytes, blob_name)
         logger.info(f"Procesamiento completado exitosamente para {blob_name}")
 
-        # Persistir resultados
         persistir_resultados(
             extracted_data=extracted_data,
             caso_id=caso_id,
@@ -148,7 +139,6 @@ def process_blob(
         logger.error(
             f"Error procesando {tipo_key} ({blob_name}): {str(e)}", exc_info=True
         )
-        # Relanzar la excepción para que Azure Functions registre el error y reintente si está configurado
         raise
 
 # ============================================================
@@ -178,3 +168,45 @@ def minuta_cancelacion_blob(blob: func.InputStream):
 )
 def minuta_constitucion_blob(blob: func.InputStream):
     process_blob(blob, MinutaConstitucionProcessor, "MinutaConstitucion")
+
+# ============================================================
+# Timer Trigger para limpieza automática de bronze
+# ============================================================
+
+@app.timer_trigger(schedule="0 0 1 * * *", arg_name="myTimer", run_on_startup=False)
+def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
+    """
+    Función programada que elimina archivos del contenedor bronze con antigüedad > bronze_retention_days.
+    Se ejecuta diariamente a la 1:00 AM UTC.
+    """
+    logger.info("Iniciando limpieza automática de bronze")
+    try:
+        retention_days = settings.bronze_retention_days
+        cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=retention_days)
+        logger.info(f"Eliminando archivos anteriores a {cutoff_date.isoformat()}")
+
+        # Crear cliente de Data Lake directamente para listar archivos
+        account_url = f"https://{settings.datalake_account_name}.dfs.core.windows.net"
+        data_lake_client = DataLakeServiceClient(
+            account_url=account_url,
+            credential=settings.datalake_account_key
+        )
+        file_system_client = data_lake_client.get_file_system_client(settings.datalake_container_bronze)
+
+        # Listar todas las rutas (archivos y directorios) de forma recursiva
+        paths = file_system_client.get_paths(recursive=True)
+        deleted_count = 0
+        for path in paths:
+            if path.is_directory:
+                continue
+            last_modified = path.last_modified
+            if last_modified and last_modified < cutoff_date:
+                file_client = file_system_client.get_file_client(path.name)
+                file_client.delete_file()
+                logger.info(f"Eliminado archivo antiguo: {path.name} (modificado: {last_modified})")
+                deleted_count += 1
+
+        logger.info(f"Limpieza completada. {deleted_count} archivos eliminados.")
+    except Exception as e:
+        logger.error(f"Error en limpieza automática: {str(e)}", exc_info=True)
+        raise
