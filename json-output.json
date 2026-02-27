@@ -1,0 +1,14 @@
+{
+  "matricula_inmobiliaria": "050C-12345678",
+  "cedulas": ["12345678", "87654321"],
+  "nombres": ["JUAN PÉREZ", "MARÍA GÓMEZ"],
+  "viabilidad_prestamo": "favorable",
+  "status": "APPROVED",
+  "reasons": [],
+  "metadata": {
+    "process_id": "ET-abc123...",
+    "caso_id": "HV-JOSSER-CORDOBA-RIVAS",
+    "fecha_sintesis": "2025-03-28T12:00:00Z",
+    "confianza": 0.95
+  }
+}

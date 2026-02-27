@@ -3,22 +3,24 @@ import azure.durable_functions as df
 from typing import List, Dict, Any
 from datetime import datetime
 
+"""
+Este módulo define las actividades de procesamiento de documentos y síntesis de resultados para el proyecto de estudio de títulos 
+inmobiliarios.
+"""
+
 from processors import (
     EstudioTitulosProcessor,
     MinutaCancelacionProcessor,
     MinutaConstitucionProcessor
 )
-from services import DataLakeService, DocumentIntelligenceService, AzureOpenAIService
+from services import DataLakeService
 from utils import JsonCleaner
 from config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 datalake = DataLakeService()
-doc_intel = DocumentIntelligenceService()
-openai = AzureOpenAIService()
 
-# Mapeo de tipo de documento a procesador
 PROCESSOR_MAP = {
     "estudio_titulos": EstudioTitulosProcessor,
     "minuta_cancelacion": MinutaCancelacionProcessor,
@@ -26,16 +28,6 @@ PROCESSOR_MAP = {
 }
 
 def activity_procesar_documento(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Actividad que procesa un único documento.
-    payload: {
-        "process_id": str,
-        "tipo": str (estudio_titulos, minuta_cancelacion, minuta_constitucion),
-        "blob_path": str (ruta en bronze, ej: "bronze/casos/{process_id}/documento.pdf"),
-        "caso_id": str
-    }
-    Retorna: dict con los datos extraídos y metadatos.
-    """
     process_id = payload["process_id"]
     tipo = payload["tipo"]
     blob_path = payload["blob_path"]
@@ -43,119 +35,138 @@ def activity_procesar_documento(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     logger.info(f"Procesando documento {tipo} para caso {caso_id}, process {process_id}")
 
-    # Leer PDF desde Data Lake bronze
     pdf_bytes = datalake.read_file(settings.datalake_container_bronze, blob_path)
 
-    # Obtener procesador correspondiente
     processor_class = PROCESSOR_MAP.get(tipo)
     if not processor_class:
         raise ValueError(f"Tipo de documento desconocido: {tipo}")
 
     processor = processor_class()
-    # El método process ahora debe ser adaptado para usar el servicio OpenAI con chunking.
-    # Modificamos base_processor para que use el servicio con chunking (ya lo hemos cambiado).
     extracted_data = processor.process(pdf_bytes, blob_path)
 
-    # Guardar el resultado en silver (opcional, para trazabilidad)
+    # Guardar en silver
     silver_path = f"conecta/{tipo}/{caso_id}/{process_id}.json"
     datalake.write_json(settings.datalake_container_silver, silver_path, extracted_data)
 
-    # Retornar los datos extraídos junto con metadatos
     return {
         "tipo": tipo,
         "datos": extracted_data,
         "blob_path": blob_path,
-        "silver_path": silver_path
+        "silver_path": silver_path,
+        "process_id": process_id,
+        "caso_id": caso_id
     }
 
+def panel_fields_to_dict(panel_fields: List[Dict]) -> Dict[str, Any]:
+    """Convierte la lista PanelFields a un diccionario clave -> valor."""
+    result = {}
+    for item in panel_fields:
+        name = item["InternalName"]
+        if item["Type"] == "Text":
+            result[name] = item.get("TextValue")
+        else:  # Number
+            result[name] = item.get("NumberValue")
+    return result
+
 def activity_sintetizar_resultados(resultados: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Actividad que consolida los resultados de todos los documentos de un caso
-    y genera el Master JSON (gold).
-    resultados: lista de salidas de activity_procesar_documento.
-    Retorna el Master JSON.
-    """
     logger.info(f"Sintetizando {len(resultados)} documentos")
 
-    # Extraer campos clave según las tablas proporcionadas
+    # Inicializar estructura del master reducido
     master = {
         "matricula_inmobiliaria": None,
         "cedulas": [],
         "nombres": [],
-        "viabilidad_prestamo": None,
-        "confianza": None,
-        "razon_rechazo": None,
+        "viabilidad_prestamo": "pendiente",
+        "status": "APPROVED",  # por defecto aprobado, se cambiará si hay problemas
+        "reasons": [],
         "metadata": {
-            "process_id": None,  # lo pondremos después
+            "process_id": None,
             "caso_id": None,
-            "fecha_sintesis": None
+            "fecha_sintesis": datetime.utcnow().isoformat(),
+            "confianza": 0.95  # valor fijo por ahora
         }
     }
 
-    # Recorrer resultados y poblar master
+    # Recopilar todos los nombres y cédulas de los diferentes documentos
+    nombres_set = set()
+    cedulas_set = set()
+
     for res in resultados:
         datos = res["datos"]
         tipo = res["tipo"]
+        panel_fields = datos.get("PanelFields", [])
+        field_dict = panel_fields_to_dict(panel_fields)
 
         if tipo == "estudio_titulos":
-            # Extraer matrícula del inmueble
-            if datos.get("inmueble") and datos["inmueble"].get("matricula_inmobiliaria"):
-                master["matricula_inmobiliaria"] = datos["inmueble"]["matricula_inmobiliaria"]
-            # Extraer propietarios (nombres y cédulas)
-            for prop in datos.get("propietarios", []):
-                if prop.get("nombre") and prop["nombre"] not in master["nombres"]:
-                    master["nombres"].append(prop["nombre"])
-                if prop.get("identificacion") and prop["identificacion"] not in master["cedulas"]:
-                    master["cedulas"].append(prop["identificacion"])
-            # Concepto jurídico como viabilidad (simplificado)
-            concepto = datos.get("concepto_juridico")
+            # Matrícula
+            if not master["matricula_inmobiliaria"]:
+                master["matricula_inmobiliaria"] = field_dict.get("VIV_PrestamoDireccionMatricula")
+
+            # Propietarios (nombres y cédulas)
+            nombres = field_dict.get("VIV_Compradores", "")
+            if nombres:
+                for n in nombres.split(";"):
+                    nombres_set.add(n.strip())
+            cedulas = field_dict.get("VIV_identificacionCompradores", "")
+            if cedulas:
+                for c in cedulas.split(";"):
+                    cedulas_set.add(c.strip())
+
+            # Viabilidad basada en concepto jurídico (si existe)
+            concepto = field_dict.get("VIV_conceptoJuridico", "").lower()
             if concepto:
-                if "favorable" in concepto.lower():
+                if "favorable" in concepto:
                     master["viabilidad_prestamo"] = "favorable"
-                elif "desfavorable" in concepto.lower():
+                elif "desfavorable" in concepto:
                     master["viabilidad_prestamo"] = "desfavorable"
+                    master["status"] = "REJECTED"
+                    master["reasons"].append({
+                        "code": "CREDIT_SCORE_LOW",
+                        "message": "Concepto jurídico desfavorable"
+                    })
                 else:
                     master["viabilidad_prestamo"] = "condicionado"
 
         elif tipo == "minuta_constitucion":
-            # Podríamos extraer también compradores
-            for deudor in datos.get("deudores", []):
-                if deudor.get("nombre") and deudor["nombre"] not in master["nombres"]:
-                    master["nombres"].append(deudor["nombre"])
-                if deudor.get("identificacion") and deudor["identificacion"] not in master["cedulas"]:
-                    master["cedulas"].append(deudor["identificacion"])
-            # También podemos tomar el nombre del vendedor
-            if datos.get("nombre_vendedor") and datos["nombre_vendedor"] not in master["nombres"]:
-                master["nombres"].append(datos["nombre_vendedor"])
+            # Compradores
+            nombres = field_dict.get("VIV_Compradores", "")
+            if nombres:
+                for n in nombres.split(";"):
+                    nombres_set.add(n.strip())
+            cedulas = field_dict.get("VIV_identificacionCompradores", "")
+            if cedulas:
+                for c in cedulas.split(";"):
+                    cedulas_set.add(c.strip())
+            # Vendedor también puede ser un nombre relevante
+            vendedor = field_dict.get("VIV_nombreVendedor")
+            if vendedor:
+                nombres_set.add(vendedor)
 
         elif tipo == "minuta_cancelacion":
-            # Similar
-            for deudor in datos.get("deudores", []):
-                if deudor.get("nombre") and deudor["nombre"] not in master["nombres"]:
-                    master["nombres"].append(deudor["nombre"])
-                if deudor.get("identificacion") and deudor["identificacion"] not in master["cedulas"]:
-                    master["cedulas"].append(deudor["identificacion"])
+            # Podría tener deudores, pero no están en los campos planos actuales.
+            # Si se añadieran, se procesarían aquí.
+            pass
 
-    # Calcular confianza (promedio simple de confianza por documento si existiera)
-    # Por ahora, ponemos un valor fijo
-    master["confianza"] = 0.95
+    # Si no se encontró matrícula, marcar como rechazado
+    if not master["matricula_inmobiliaria"]:
+        master["status"] = "REJECTED"
+        master["reasons"].append({
+            "code": "DOC_INVALID",
+            "message": "No se encontró matrícula inmobiliaria en el estudio de títulos"
+        })
 
-    # Si no hay viabilidad, poner "pendiente"
-    if not master["viabilidad_prestamo"]:
-        master["viabilidad_prestamo"] = "pendiente"
+    # Convertir sets a listas
+    master["nombres"] = list(nombres_set)
+    master["cedulas"] = list(cedulas_set)
 
-    # Agregar metadatos
-    # Tomamos process_id y caso_id del primer resultado (todos iguales)
+    # Tomar process_id y caso_id del primer resultado (todos deberían ser iguales)
     if resultados:
-        master["metadata"]["process_id"] = resultados[0].get("process_id")  # habría que pasarlo en el payload
+        master["metadata"]["process_id"] = resultados[0].get("process_id")
         master["metadata"]["caso_id"] = resultados[0].get("caso_id")
-    master["metadata"]["fecha_sintesis"] = datetime.utcnow().isoformat()
 
-    # Guardar en gold
+    # Guardar master en gold y silver
     gold_path = f"conecta/master/{master['metadata']['caso_id']}/{master['metadata']['process_id']}.json"
     datalake.write_json(settings.datalake_container_gold, gold_path, master)
-
-    # También podríamos guardar en silver el master
     datalake.write_json(settings.datalake_container_silver, gold_path.replace("gold", "silver"), master)
 
     return master
