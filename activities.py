@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 datalake = DataLakeService()
 
+
 def panel_fields_to_dict(panel_fields: List[Dict]) -> Dict[str, Any]:
     """Convierte la lista PanelFields a un diccionario clave -> valor."""
     result = {}
@@ -19,6 +20,7 @@ def panel_fields_to_dict(panel_fields: List[Dict]) -> Dict[str, Any]:
         else:  # Number
             result[name] = item.get("NumberValue")
     return result
+
 
 def calcular_confianza(resultados: List[Dict]) -> float:
     """
@@ -33,6 +35,7 @@ def calcular_confianza(resultados: List[Dict]) -> float:
         datos = res["datos"]
         panel = datos.get("PanelFields", [])
         field_dict = panel_fields_to_dict(panel)
+
         for campo, peso in pesos.items():
             if campo in field_dict and field_dict[campo]:
                 total_aciertos += peso
@@ -40,7 +43,9 @@ def calcular_confianza(resultados: List[Dict]) -> float:
 
     if total_peso == 0:
         return 0.0
+
     return round(total_aciertos / total_peso, 4)
+
 
 def evaluar_viabilidad(resultados: List[Dict], field_dicts: Dict[str, Dict]) -> Dict:
     """
@@ -51,11 +56,24 @@ def evaluar_viabilidad(resultados: List[Dict], field_dicts: Dict[str, Dict]) -> 
     reasons = []
     decision_log = []
 
-    # Extraer field_dicts por tipo
     estudio_dict = field_dicts.get("estudio_titulos", {})
-    constitucion_dict = field_dicts.get("minuta_constitucion", {})
 
-    # --- Regla 1: Matrícula obligatoria ---
+    # -------------------------------------------------
+    # Regla 0: Documento ilegible
+    # -------------------------------------------------
+    for res in resultados:
+        if not res.get("datos", {}).get("is_legible", True):
+            status = "REJECTED"
+            reasons.append({
+                "code": "DOC_INVALID",
+                "message": "Documento ilegible"
+            })
+            decision_log.append("Regla 0: Documento ilegible detectado → RECHAZADO")
+            break
+
+    # -------------------------------------------------
+    # Regla 1: Matrícula obligatoria
+    # -------------------------------------------------
     if not estudio_dict.get("VIV_PrestamoDireccionMatricula"):
         status = "REJECTED"
         reasons.append({
@@ -64,8 +82,11 @@ def evaluar_viabilidad(resultados: List[Dict], field_dicts: Dict[str, Dict]) -> 
         })
         decision_log.append("Regla 1: Matrícula ausente → RECHAZADO")
 
-    # --- Regla 2: Concepto jurídico ---
+    # -------------------------------------------------
+    # Regla 2: Concepto jurídico
+    # -------------------------------------------------
     concepto = estudio_dict.get("VIV_conceptoJuridico", "").lower()
+
     if "desfavorable" in concepto:
         status = "REJECTED"
         reasons.append({
@@ -73,8 +94,8 @@ def evaluar_viabilidad(resultados: List[Dict], field_dicts: Dict[str, Dict]) -> 
             "message": "El concepto jurídico del estudio de títulos es desfavorable"
         })
         decision_log.append("Regla 2: Concepto desfavorable → RECHAZADO")
+
     elif "favorable" not in concepto and status != "REJECTED":
-        # Si no es favorable y aún no está rechazado, se marca como condicionado
         status = "CONDITIONAL"
         reasons.append({
             "code": "CONCEPTO_NO_CLARO",
@@ -82,40 +103,61 @@ def evaluar_viabilidad(resultados: List[Dict], field_dicts: Dict[str, Dict]) -> 
         })
         decision_log.append("Regla 2: Concepto no claro → CONDICIONAL")
 
-    # --- Regla 3: Gravámenes vigentes (detección simple en texto) ---
+    # -------------------------------------------------
+    # Regla 3: Gravámenes vigentes
+    # -------------------------------------------------
     if settings.reject_if_encumbrances:
         gravamenes = estudio_dict.get("VIV_gravamenes", "")
         if gravamenes and "embargo" in gravamenes.lower() and "cancelado" not in gravamenes.lower():
-            if status != "REJECTED":
-                status = "REJECTED"
+            status = "REJECTED"
             reasons.append({
                 "code": "EMBARGO_VIGENTE",
                 "message": "Existe un embargo vigente sobre el inmueble"
             })
             decision_log.append("Regla 3: Embargo vigente detectado → RECHAZADO")
 
-    # --- Regla 4: Loan-to-Value (LTV) ---
-    try:
-        monto_prestamo_str = constitucion_dict.get("GBL_Valordeprestamo")
-        avaluo_str = estudio_dict.get("VIV_avaluo_comercial")  # Necesario agregar al prompt
+    # -------------------------------------------------
+    # Regla 4: Edad fuera de rango
+    # -------------------------------------------------
+    edad_str = estudio_dict.get("VIV_edadSolicitante")
 
-        if monto_prestamo_str and avaluo_str:
-            monto = float(monto_prestamo_str)
-            avaluo = float(avaluo_str)
-            if avaluo > 0:
-                ltv = monto / avaluo
-                if ltv > settings.ltv_max_threshold:
-                    if status != "REJECTED":
-                        status = "REJECTED"
-                    reasons.append({
-                        "code": "LTV_ALTO",
-                        "message": f"El LTV ({ltv:.2%}) supera el límite permitido ({settings.ltv_max_threshold:.0%})"
-                    })
-                    decision_log.append(f"Regla 4: LTV {ltv:.2%} > umbral → RECHAZADO")
+    try:
+        if edad_str:
+            edad = int(edad_str)
+            if edad < settings.min_age or edad > settings.max_age:
+                status = "REJECTED"
+                reasons.append({
+                    "code": "AGE_LIMIT",
+                    "message": "Edad fuera de rango"
+                })
+                decision_log.append(
+                    f"Regla 4: Edad {edad} fuera de rango "
+                    f"({settings.min_age}-{settings.max_age}) → RECHAZADO"
+                )
     except (ValueError, TypeError):
         pass
 
-    # Si no hay razones y el estado sigue siendo APPROVED, registrar
+    # -------------------------------------------------
+    # Regla 5: Score insuficiente
+    # -------------------------------------------------
+    score_str = estudio_dict.get("VIV_creditScore")
+
+    try:
+        if score_str:
+            score = int(score_str)
+            if score < settings.min_credit_score:
+                status = "REJECTED"
+                reasons.append({
+                    "code": "CREDIT_SCORE_LOW",
+                    "message": "Score insuficiente"
+                })
+                decision_log.append(
+                    f"Regla 5: Score {score} < mínimo "
+                    f"({settings.min_credit_score}) → RECHAZADO"
+                )
+    except (ValueError, TypeError):
+        pass
+
     if status == "APPROVED":
         decision_log.append("Todas las reglas se cumplieron → APROBADO")
 
@@ -125,10 +167,10 @@ def evaluar_viabilidad(resultados: List[Dict], field_dicts: Dict[str, Dict]) -> 
         "decision_log": decision_log
     }
 
+
 def activity_sintetizar_resultados(resultados: List[Dict[str, Any]]) -> Dict[str, Any]:
     logger.info(f"Sintetizando {len(resultados)} documentos")
 
-    # Inicializar estructura del master reducido
     master = {
         "matricula_inmobiliaria": None,
         "cedulas": [],
@@ -147,7 +189,7 @@ def activity_sintetizar_resultados(resultados: List[Dict[str, Any]]) -> Dict[str
 
     nombres_set = set()
     cedulas_set = set()
-    field_dicts = {}  # para guardar los field_dict por tipo
+    field_dicts = {}
 
     for res in resultados:
         tipo = res["tipo"]
@@ -156,33 +198,29 @@ def activity_sintetizar_resultados(resultados: List[Dict[str, Any]]) -> Dict[str
         field_dict = panel_fields_to_dict(panel)
         field_dicts[tipo] = field_dict
 
-        # Recolectar nombres y cédulas desde todos los documentos
         if "VIV_Compradores" in field_dict:
             nombres = field_dict["VIV_Compradores"]
             if nombres:
                 for n in nombres.split(";"):
                     nombres_set.add(n.strip())
+
         if "VIV_identificacionCompradores" in field_dict:
             cedulas = field_dict["VIV_identificacionCompradores"]
             if cedulas:
                 for c in cedulas.split(";"):
                     cedulas_set.add(c.strip())
 
-        # Matrícula la tomamos solo del estudio de títulos
         if tipo == "estudio_titulos" and not master["matricula_inmobiliaria"]:
             master["matricula_inmobiliaria"] = field_dict.get("VIV_PrestamoDireccionMatricula")
 
-    # Calcular confianza
     confianza = calcular_confianza(resultados)
     master["metadata"]["confianza"] = confianza
 
-    # Evaluar viabilidad
     decision = evaluar_viabilidad(resultados, field_dicts)
     master["status"] = decision["status"]
     master["reasons"] = decision["reasons"]
     master["metadata"]["decision_log"] = decision["decision_log"]
 
-    # Mapear status a viabilidad_prestamo (para compatibilidad con versiones anteriores)
     if decision["status"] == "APPROVED":
         master["viabilidad_prestamo"] = "favorable"
     elif decision["status"] == "CONDITIONAL":
@@ -193,14 +231,17 @@ def activity_sintetizar_resultados(resultados: List[Dict[str, Any]]) -> Dict[str
     master["nombres"] = list(nombres_set)
     master["cedulas"] = list(cedulas_set)
 
-    # Tomar process_id y caso_id del primer resultado
     if resultados:
         master["metadata"]["process_id"] = resultados[0].get("process_id")
         master["metadata"]["caso_id"] = resultados[0].get("caso_id")
 
-    # Guardar master en gold y silver
     gold_path = f"conecta/master/{master['metadata']['caso_id']}/{master['metadata']['process_id']}.json"
+
     datalake.write_json(settings.datalake_container_gold, gold_path, master)
-    datalake.write_json(settings.datalake_container_silver, gold_path.replace("gold", "silver"), master)
+    datalake.write_json(
+        settings.datalake_container_silver,
+        gold_path.replace("gold", "silver"),
+        master
+    )
 
     return master

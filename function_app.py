@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 datalake = DataLakeService()
 cosmos = CosmosDBService()
+from utils import business_days
 
 app = func.FunctionApp()
 
@@ -200,34 +201,47 @@ def minuta_constitucion_blob(blob: func.InputStream):
 def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
     """
     Timer diario (1:00 AM UTC) que elimina archivos del contenedor bronze
-    con antigüedad superior a bronze_retention_days (configurable).
+    con antigüedad superior a bronze_retention_days en días hábiles (lunes–viernes).
     """
-    logger.info("Iniciando limpieza automática de bronze")
+    logger.info("Iniciando limpieza automática de bronze (días hábiles)")
+
     try:
         retention_days = settings.bronze_retention_days
-        cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=retention_days)
-        logger.info(f"Eliminando archivos anteriores a {cutoff_date.isoformat()}")
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
 
         account_url = f"https://{settings.datalake_account_name}.dfs.core.windows.net"
         data_lake_client = DataLakeServiceClient(
             account_url=account_url,
             credential=settings.datalake_account_key
         )
-        file_system_client = data_lake_client.get_file_system_client(settings.datalake_container_bronze)
+        file_system_client = data_lake_client.get_file_system_client(
+            settings.datalake_container_bronze
+        )
 
         paths = file_system_client.get_paths(recursive=True)
         deleted_count = 0
+
         for path in paths:
             if path.is_directory:
                 continue
+
             last_modified = path.last_modified
-            if last_modified and last_modified < cutoff_date:
+            if not last_modified:
+                continue
+
+            days_elapsed = business_days(last_modified, now_utc)
+
+            if days_elapsed >= retention_days:
                 file_client = file_system_client.get_file_client(path.name)
                 file_client.delete_file()
-                logger.info(f"Eliminado archivo antiguo: {path.name} (modificado: {last_modified})")
+                logger.info(
+                    f"Eliminado archivo: {path.name} | "
+                    f"Días hábiles transcurridos: {days_elapsed}"
+                )
                 deleted_count += 1
 
         logger.info(f"Limpieza completada. {deleted_count} archivos eliminados.")
+
     except Exception as e:
         logger.error(f"Error en limpieza automática: {str(e)}", exc_info=True)
         raise
