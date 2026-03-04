@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 datalake = DataLakeService()
 cosmos = CosmosDBService()
-from utils import business_days_between as business_days
+from utils.business_days import business_days_between as business_days
 
 app = func.FunctionApp()
 
@@ -241,23 +241,32 @@ def procesar_documento_blob(blob: func.InputStream):
 # Timer Trigger para limpieza automática de bronze
 # ============================================================
 
-@app.timer_trigger(schedule="0 0 1 * * *", arg_name="myTimer", run_on_startup=False)
+@app.timer_trigger(
+    schedule="0 0 1 * * *",
+    arg_name="myTimer",
+    run_on_startup=False
+)
 def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
     """
     Timer diario (1:00 AM UTC) que elimina archivos del contenedor bronze
-    con antigüedad superior a bronze_retention_days en días hábiles (lunes–viernes).
+    con antigüedad superior a bronze_retention_days en días hábiles.
     """
+
     logger.info("Iniciando limpieza automática de bronze (días hábiles)")
 
     try:
         retention_days = settings.bronze_retention_days
+
+        # SIEMPRE UTC-aware
         now_utc = datetime.datetime.now(datetime.timezone.utc)
 
         account_url = f"https://{settings.datalake_account_name}.dfs.core.windows.net"
+
         data_lake_client = DataLakeServiceClient(
             account_url=account_url,
             credential=settings.datalake_account_key
         )
+
         file_system_client = data_lake_client.get_file_system_client(
             settings.datalake_container_bronze
         )
@@ -266,26 +275,46 @@ def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
         deleted_count = 0
 
         for path in paths:
+
             if path.is_directory:
                 continue
 
             last_modified = path.last_modified
+
             if not last_modified:
                 continue
+
+            # Normalización explícita defensiva
+            if last_modified.tzinfo is None:
+                last_modified = last_modified.replace(
+                    tzinfo=datetime.timezone.utc
+                )
+            else:
+                last_modified = last_modified.astimezone(
+                    datetime.timezone.utc
+                )
 
             days_elapsed = business_days(last_modified, now_utc)
 
             if days_elapsed >= retention_days:
+
                 file_client = file_system_client.get_file_client(path.name)
                 file_client.delete_file()
+
                 logger.info(
                     f"Eliminado archivo: {path.name} | "
                     f"Días hábiles transcurridos: {days_elapsed}"
                 )
+
                 deleted_count += 1
 
-        logger.info(f"Limpieza completada. {deleted_count} archivos eliminados.")
+        logger.info(
+            f"Limpieza completada. {deleted_count} archivos eliminados."
+        )
 
     except Exception as e:
-        logger.error(f"Error en limpieza automática: {str(e)}", exc_info=True)
+        logger.error(
+            f"Error en limpieza automática: {str(e)}",
+            exc_info=True
+        )
         raise
