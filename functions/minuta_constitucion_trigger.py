@@ -13,8 +13,9 @@ def process_minuta_constitucion(blob: func.InputStream) -> None:
     """
     Azure Function con Blob Trigger para procesar documentos de Minuta de Constitucion.
 
-    Ruta de entrada: bronze/conecta/minuta_constitucion/{name}.pdf
-    Ruta de salida: silver/conecta/minuta_constitucion/{name}_{timestamp}.json
+    Ruta de entrada: bronze/conecta/vivienda/1/minuta_de_constitucion/{name}.pdf
+    Ruta de salida: silver/conecta/vivienda/minuta-constitucion/{prefix}_{name}_{timestamp}.json
+    (prefijo para constitución: VIV-514.2_1902)
 
     Args:
         blob: Blob de entrada con el documento PDF.

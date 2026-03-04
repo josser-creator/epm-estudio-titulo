@@ -1,6 +1,7 @@
 import logging
 from typing import List, Dict, Any
 from datetime import datetime
+import json
 
 from services import DataLakeService
 from config import get_settings
@@ -20,6 +21,42 @@ def panel_fields_to_dict(panel_fields: List[Dict]) -> Dict[str, Any]:
         else:  # Number
             result[name] = item.get("NumberValue")
     return result
+
+
+def activity_leer_resultados_intermedios(caso_id: str) -> List[Dict[str, Any]]:
+    """
+    Lee todos los resultados intermedios JSON para un caso desde el contenedor *silver*.
+    Busca en las carpetas de cada tipo de documento y devuelve una lista de objetos
+    con la clave "tipo" (por ejemplo "estudio_titulos") y los "datos" leídos.
+
+    Esta función está pensada para ejecutarse como Activity Function en un
+    Durable Orchestrator.
+    """
+    resultados: List[Dict[str, Any]] = []
+    tipos = ["estudio-titulos", "minuta-cancelacion", "minuta-constitucion"]
+    container = settings.datalake_container_silver
+
+    for tipo in tipos:
+        directorio = f"conecta/vivienda/{tipo}/{caso_id}"
+        try:
+            archivos = datalake.list_files(container, directorio, extension=".json")
+        except Exception as e:
+            logger.warning(f"No se pudo listar archivos en {directorio}: {e}")
+            archivos = []
+
+        for ruta in archivos:
+            try:
+                contenido = datalake.read_file(container, ruta)
+                datos_json = json.loads(contenido)
+                resultados.append({
+                    "tipo": tipo.replace("-", "_"),
+                    "datos": datos_json,
+                })
+            except Exception as e:
+                logger.error(f"Error leyendo {ruta}: {e}", exc_info=True)
+
+    return resultados
+
 
 
 def calcular_confianza(resultados: List[Dict]) -> float:
@@ -245,3 +282,31 @@ def activity_sintetizar_resultados(resultados: List[Dict[str, Any]]) -> Dict[str
     )
 
     return master
+
+
+def activity_generar_resumen_reducido(resultados: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Fusiona resultados intermedios en un JSON reducido.
+
+    El objeto devuelto contiene únicamente los campos esenciales para consumo
+    rápido: matrícula, cédulas, nombres y viabilidad del préstamo, junto con una
+    sección de metadata ligera que incluye la confianza calculada y las razones
+    de rechazo (si existen).
+
+    Este método reutiliza la lógica de `activity_sintetizar_resultados` para
+    obtener el `master` completo antes de recortarlo.
+    """
+    # primero generar el master completo
+    master = activity_sintetizar_resultados(resultados)
+
+    reduced = {
+        "matricula": master.get("matricula_inmobiliaria"),
+        "cedulas": master.get("cedulas", []),
+        "nombres": master.get("nombres", []),
+        "viabilidad_prestamo": master.get("viabilidad_prestamo"),
+        "metadata": {
+            "confianza": master.get("metadata", {}).get("confianza"),
+            "reasons": master.get("reasons", []),
+        },
+    }
+    return reduced

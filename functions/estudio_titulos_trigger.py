@@ -13,8 +13,10 @@ def process_estudio_titulos(blob: func.InputStream) -> None:
     """
     Azure Function con Blob Trigger para procesar documentos de Estudio de Titulos.
 
-    Ruta de entrada: bronze/conecta/estudio_titulos/{name}.pdf
-    Ruta de salida: silver/conecta/estudio_titulos/{name}_{timestamp}.json
+    Ruta de entrada: bronze/conecta/vivienda/1/estudio_de_titulos/{name}.pdf
+    (los archivos se reubican en la carpeta 1)
+    Ruta de salida: silver/conecta/vivienda/estudio-titulos/{prefix}_{name}_{timestamp}.json
+    (el prefijo de nombre será VIV-514.2_1901 según el tipo)
 
     Args:
         blob: Blob de entrada con el documento PDF.

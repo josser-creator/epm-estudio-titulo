@@ -1,6 +1,7 @@
 """
 Azure Functions App para procesamiento de documentos legales.
-Blob Triggers para estudio de títulos, minutas de cancelación y constitución.
+Blob Trigger único para la carpeta bronze/conecta/vivienda/1/ que clasifica
+automáticamente el tipo de documento según palabras clave en el nombre del archivo.
 Timer Trigger para limpieza automática del contenedor bronze.
 """
 
@@ -10,6 +11,7 @@ import uuid
 import datetime
 from datetime import datetime as dt
 import os
+from typing import List, Dict, Any
 
 from azure.storage.filedatalake import DataLakeServiceClient
 
@@ -29,16 +31,72 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 datalake = DataLakeService()
 cosmos = CosmosDBService()
-from utils import business_days
+from utils import business_days_between as business_days
 
 app = func.FunctionApp()
 
+# ============================
+# Durable activity functions
+# ============================
+
+@app.activity_trigger(input_name="caso_id")
+def leer_resultados_intermedios_activity(caso_id: str):
+    """Activity Function que delega a la lógica en activities.py."""
+    from activities import activity_leer_resultados_intermedios
+    return activity_leer_resultados_intermedios(caso_id)
+
+
+@app.activity_trigger(input_name="resultados")
+def generar_resumen_activity(resultados: List[Dict[str, Any]]):
+    """Activity que construye un JSON reducido a partir de los resultados."""
+    from activities import activity_generar_resumen_reducido
+    return activity_generar_resumen_reducido(resultados)
+
 # Mapeo para Blob Triggers: (tipo_corto, clase_procesador, prefijo_id, subpath)
+# Los prefijos corresponden a los códigos solicitados por el negocio.
+# El `subpath` define la carpeta dentro de silver donde se guardarán los resultados.
 BLOB_TIPO_MAP = {
-    "EstudioTitulos": ("estudio_titulos", EstudioTitulosProcessor, "ET", "conecta/vivienda/estudio-titulos"),
-    "MinutaCancelacion": ("minuta_cancelacion", MinutaCancelacionProcessor, "MINC", "conecta/vivienda/minuta-cancelacion"),
-    "MinutaConstitucion": ("minuta_constitucion", MinutaConstitucionProcessor, "MC", "conecta/vivienda/minuta-constitucion"),
+    "EstudioTitulos": (
+        "estudio_titulos",
+        EstudioTitulosProcessor,
+        "VIV-514.2_1901",  # prefijo para estudio de títulos
+        "conecta/vivienda/estudio-titulos",
+    ),
+    "MinutaCancelacion": (
+        "minuta_cancelacion",
+        MinutaCancelacionProcessor,
+        "VIV-514.2_1903",  # prefijo para minuta de cancelación
+        "conecta/vivienda/minuta-cancelacion",
+    ),
+    "MinutaConstitucion": (
+        "minuta_constitucion",
+        MinutaConstitucionProcessor,
+        "VIV-514.2_1902",  # prefijo para minuta de constitución
+        "conecta/vivienda/minuta-constitucion",
+    ),
 }
+
+# Palabras clave para identificar el tipo de documento por el nombre del archivo
+KEYWORD_TO_TYPE = {
+    "estudio de titulos": "EstudioTitulos",
+    "estudio de títulos": "EstudioTitulos",
+    "estudio_titulos": "EstudioTitulos",
+    "cancelacion": "MinutaCancelacion",
+    "cancelación": "MinutaCancelacion",
+    "constitucion": "MinutaConstitucion",
+    "constitución": "MinutaConstitucion",
+}
+
+def detectar_tipo_por_nombre(nombre_archivo: str) -> str | None:
+    """
+    Detecta el tipo de documento basado en palabras clave en el nombre del archivo.
+    Retorna la clave de BLOB_TIPO_MAP (ej. "EstudioTitulos") o None si no se detecta.
+    """
+    nombre_lower = nombre_archivo.lower()
+    for keyword, tipo in KEYWORD_TO_TYPE.items():
+        if keyword in nombre_lower:
+            return tipo
+    return None
 
 def persistir_resultados(
     extracted_data: dict,
@@ -51,18 +109,7 @@ def persistir_resultados(
 ) -> str:
     """
     Guarda los resultados en Data Lake (Silver) y Cosmos DB.
-
-    Args:
-        extracted_data: Datos extraídos (formato plano con PanelFields).
-        caso_id: Identificador del caso.
-        process_id: ID único del proceso.
-        tipo_documento: Tipo de documento (partición en Cosmos DB).
-        archivo_origen: Ruta original del blob.
-        processor_name: Nombre del procesador (etiqueta).
-        subpath: Ruta relativa en silver (ej: "conecta/vivienda/...").
-
-    Returns:
-        Ruta relativa del archivo guardado en silver.
+    (Sin cambios respecto a tu versión original)
     """
     json_result = {
         "metadata": {
@@ -116,11 +163,7 @@ def process_blob(
 ):
     """
     Procesa un blob de un tipo específico (genérico).
-
-    Args:
-        blob: Blob entrante.
-        processor_class: Clase del procesador (ej: EstudioTitulosProcessor).
-        tipo_key: Clave en BLOB_TIPO_MAP (ej: "EstudioTitulos").
+    (Sin cambios respecto a tu versión original, excepto que ahora se llama con tipo_key)
     """
     blob_name = blob.name
     logger.info(f"Blob Trigger activado: {blob_name} (tipo: {tipo_key})")
@@ -163,35 +206,36 @@ def process_blob(
         raise
 
 # ============================================================
-# Blob Triggers específicos
+# Blob Trigger ÚNICO para la carpeta raíz
 # ============================================================
 
 @app.blob_trigger(
     arg_name="blob",
-    path="bronze/conecta/vivienda/estudio_de_titulos/{name}",
+    path="bronze/conecta/vivienda/1/{name}",
     connection="AzureWebJobsStorage",
 )
-def estudio_titulos_blob(blob: func.InputStream):
-    """Blob Trigger para Estudio de Títulos."""
-    process_blob(blob, EstudioTitulosProcessor, "EstudioTitulos")
+def procesar_documento_blob(blob: func.InputStream):
+    """
+    Blob Trigger único que captura todos los archivos en bronze/conecta/vivienda/1/,
+    detecta el tipo de documento por el nombre y lo procesa con el procesador adecuado.
+    """
+    blob_name = blob.name
+    logger.info(f"Blob Trigger activado (raíz): {blob_name}")
 
-@app.blob_trigger(
-    arg_name="blob",
-    path="bronze/conecta/vivienda/minuta_de_cancelacion/{name}",
-    connection="AzureWebJobsStorage",
-)
-def minuta_cancelacion_blob(blob: func.InputStream):
-    """Blob Trigger para Minuta de Cancelación."""
-    process_blob(blob, MinutaCancelacionProcessor, "MinutaCancelacion")
+    # Detectar tipo por nombre
+    nombre_archivo = os.path.basename(blob_name)
+    tipo_key = detectar_tipo_por_nombre(nombre_archivo)
 
-@app.blob_trigger(
-    arg_name="blob",
-    path="bronze/conecta/vivienda/minuta_de_constitucion/{name}",
-    connection="AzureWebJobsStorage",
-)
-def minuta_constitucion_blob(blob: func.InputStream):
-    """Blob Trigger para Minuta de Constitución."""
-    process_blob(blob, MinutaConstitucionProcessor, "MinutaConstitucion")
+    if not tipo_key:
+        logger.error(f"No se pudo determinar el tipo de documento para {blob_name}. Se omite.")
+        return
+
+    # Obtener la clase procesadora del mapa
+    _, processor_class, _, _ = BLOB_TIPO_MAP[tipo_key]
+
+    # Llamar a la función genérica de procesamiento
+    process_blob(blob, processor_class, tipo_key)
+
 
 # ============================================================
 # Timer Trigger para limpieza automática de bronze

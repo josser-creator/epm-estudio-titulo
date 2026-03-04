@@ -13,8 +13,9 @@ def process_minuta_cancelacion(blob: func.InputStream) -> None:
     """
     Azure Function con Blob Trigger para procesar documentos de Minuta de Cancelacion.
 
-    Ruta de entrada: bronze/conecta/minuta_cancelacion/{name}.pdf
-    Ruta de salida: silver/conecta/minuta_cancelacion/{name}_{timestamp}.json
+    Ruta de entrada: bronze/conecta/vivienda/1/minuta_de_cancelacion/{name}.pdf
+    Ruta de salida: silver/conecta/vivienda/minuta-cancelacion/{prefix}_{name}_{timestamp}.json
+    (prefijo para cancelación: VIV-514.2_1903)
 
     Args:
         blob: Blob de entrada con el documento PDF.
