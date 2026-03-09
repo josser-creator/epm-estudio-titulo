@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     """Configuración centralizada de la aplicación."""
 
     model_config = ConfigDict(
-        env_file=".env",
+        env_file=".env.test", # Archivo de entorno para pruebas
+        # env_fie=".env", # Archivo de entorno para producción
         case_sensitive=False
     )
 
