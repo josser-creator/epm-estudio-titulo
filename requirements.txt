@@ -20,3 +20,6 @@ pydantic-settings>=2.1.0
 python-dotenv>=1.0.0
 azure-cosmos>=4.5.0
 azure-functions-durable
+
+
+azure-storage-file-datalake
