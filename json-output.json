@@ -1,14 +1,98 @@
 {
-  "matricula_inmobiliaria": "050C-12345678",
-  "cedulas": ["12345678", "87654321"],
-  "nombres": ["JUAN PÉREZ", "MARÍA GÓMEZ"],
-  "viabilidad_prestamo": "favorable",
-  "status": "APPROVED",
-  "reasons": [],
+  "PanelFields": [
+    {
+      "InternalName": "VIV_PrestamoDireccionMatricula",
+      "Type": "Text",
+      "TextValue": "050C-12345678"
+    },
+    {
+      "InternalName": "VIV_fechaExpedicionMatricula",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_PrestamoDireccion",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_tipoPredio",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_descripcionLinderos",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_Compradores",
+      "Type": "Text",
+      "TextValue": "JUAN PÉREZ; MARÍA GÓMEZ"
+    },
+    {
+      "InternalName": "VIV_identificacionCompradores",
+      "Type": "Text",
+      "TextValue": "12345678; 87654321"
+    },
+    {
+      "InternalName": "VIV_tituloAdquisicion",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_gravamenes",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_limitacionDominio",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_afectacionDominio",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_medidaCautelar",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_tenencia",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_documentosRevisados",
+      "Type": "Text",
+      "TextValue": ""
+    },
+    {
+      "InternalName": "VIV_conceptoJuridico",
+      "Type": "Text",
+      "TextValue": "favorable"
+    },
+    {
+      "InternalName": "VIV_avaluo_comercial",
+      "Type": "Number",
+      "NumberValue": 0
+    }
+  ],
   "metadata": {
+    "tipo_documento": "estudio_titulos",
     "process_id": "ET-abc123...",
     "caso_id": "HV-JOSSER-CORDOBA-RIVAS",
     "fecha_sintesis": "2025-03-28T12:00:00Z",
-    "confianza": 0.95
+    "confianza": 0.8,
+    "reasons": [
+      {
+        "code": "AGE_LIMIT",
+        "message": "Edad fuera de rango"
+      }
+    ]
   }
 }
+
