@@ -92,7 +92,7 @@ class DataLakeService(BaseService):
             file_client.upload_data(content_bytes, overwrite=True)
 
             full_path = f"{container}/{file_path}"
-            self._log_info(f"JSON written successfully to {full_path}")
+            self._log_info(f"JSON escrito exitosamente a {full_path}")
             return full_path
 
         except Exception as e:
