@@ -1,0 +1,342 @@
+trigger:
+  branches:
+    include:
+      - desarrollo
+      - pruebas
+      - produccion
+      - feature/*
+
+pool:
+  name: 'Interno-Ubuntu22.04-VMSS'
+
+variables:
+  pythonVersion: '3.10.15'
+  artifactName: 'eficfact.zip'
+  sonarProjectKey: 'eficfact'
+  sonarProjectName: 'Eficfact'
+
+# ─────────────────────────────────────────────
+# PARÁMETROS DEL DELIVERY TRAIN
+# ─────────────────────────────────────────────
+parameters:
+  - name: deliveryTrain
+    type: object
+    default:
+      continuousIntegration:
+        build:
+          - with: python
+            configure:
+              pythonVersion: '3.10.15'
+              commands: |
+                pip install --upgrade pip
+                python -m pip install -r requirements.txt --target .python_packages/lib/site-packages
+                export PYTHONPATH=$PYTHONPATH:$(pwd)/.python_packages/lib/site-packages
+                pip install pytest==8.0.2 pytest-cov==4.1.0
+                python -m pip install pydantic==2.10.3 pydantic_core==2.27.1 requests==2.28.1
+                python -m pytest --junitxml=nosetests.xml --cov=./ --cov-report=xml test/
+                pip uninstall -y pytest pytest-cov
+              arguments: ''
+              workingDirectory: .
+        artifact:
+          with: artifactory
+          configure:
+            artifactFolder: .
+            artifactName: eficfact.zip
+            includeRootFolder: false
+      continuousDelivery:
+        deployment:
+          - environment: desarrollo
+            platform:
+              with: azure-functions
+              configure:
+                azureSubscription: AZ-SC-EPM-NP-AGORA-VPASUNTOSLEGALES-DLOL
+                appType: functionAppLinux
+                appName: AZ-FAPP-EPM-NP-IAESTUDIO-TITULOS-DLLO
+          - environment: pruebas
+            platform:
+              with: azure-functions
+              configure:
+                azureSubscription: AZ-SC-EPM-NP-AGORA-VPASUNTOSLEGALES-UAT
+                appType: functionAppLinux
+                appName: AZ-FAPP-EPM-NP-CHATBOT-AGORA-UAT
+          - environment: produccion
+            platform:
+              with: azure-functions
+              configure:
+                azureSubscription: AZ-SC-EPM-NP-AGORA-VPASUNTOSLEGALES-PRD
+                appType: functionAppLinux
+                appName: AZ-FAPP-EPM-NP-CHATBOT-AGORA-PRD
+            approvers:
+              ti: aprobadores-ti
+              business: aprobadores-negocio
+
+# ─────────────────────────────────────────────
+# STAGES
+# ─────────────────────────────────────────────
+stages:
+
+  # ═══════════════════════════════════════════
+  # STAGE CI — Integración Continua
+  # Corre siempre en todas las ramas configuradas
+  # ═══════════════════════════════════════════
+  - stage: CI
+    displayName: 'Integración Continua'
+    condition: always()
+    jobs:
+
+      - job: Build_Test_Sonar
+        displayName: 'Build · Pruebas · Análisis de Código'
+        steps:
+
+          # 1. Checkout del código (historial completo requerido por SonarQube)
+          - checkout: self
+            fetchDepth: 0
+
+          # 2. Configurar Python
+          - task: UsePythonVersion@0
+            displayName: 'Configurar Python $(pythonVersion)'
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+
+          # 3. Instalar dependencias de producción
+          - script: |
+              pip install --upgrade pip
+              python -m pip install -r requirements.txt --target .python_packages/lib/site-packages
+              export PYTHONPATH=$PYTHONPATH:$(pwd)/.python_packages/lib/site-packages
+              python -m pip install pydantic==2.10.3 pydantic_core==2.27.1 requests==2.28.1
+            displayName: 'Instalar dependencias de producción'
+            workingDirectory: $(System.DefaultWorkingDirectory)
+
+          # 4. Instalar herramientas de testing
+          - script: |
+              pip install pytest==8.0.2 pytest-cov==4.1.0
+            displayName: 'Instalar herramientas de testing'
+
+          # 5. Ejecutar pruebas unitarias con cobertura
+          - script: |
+              export PYTHONPATH=$PYTHONPATH:$(pwd)/.python_packages/lib/site-packages
+              python -m pytest \
+                --junitxml=nosetests.xml \
+                --cov=./ \
+                --cov-report=xml:coverage.xml \
+                --cov-report=html:coverage_html \
+                test/
+            displayName: 'Ejecutar pruebas unitarias'
+            workingDirectory: $(System.DefaultWorkingDirectory)
+
+          # 6. Publicar resultados de pruebas
+          - task: PublishTestResults@2
+            displayName: 'Publicar resultados de pruebas'
+            condition: always()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/nosetests.xml'
+              failTaskOnFailedTests: true
+
+          # 7. Publicar reporte de cobertura
+          - task: PublishCodeCoverageResults@2
+            displayName: 'Publicar reporte de cobertura'
+            condition: always()
+            inputs:
+              codeCoverageTool: 'Cobertura'
+              summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
+              reportDirectory: '$(System.DefaultWorkingDirectory)/coverage_html'
+
+          # 8. Limpiar herramientas de testing
+          - script: |
+              pip uninstall -y pytest pytest-cov
+            displayName: 'Limpiar herramientas de testing'
+
+          # 9. Preparar scanner de SonarQube
+          - task: SonarQubePrepare@5
+            displayName: 'Preparar análisis SonarQube'
+            inputs:
+              SonarQube: 'SonarQube'
+              scannerMode: 'CLI'
+              configMode: 'manual'
+              cliProjectKey: '$(sonarProjectKey)'
+              cliProjectName: '$(sonarProjectName)'
+              cliSources: '.'
+              extraProperties: |
+                sonar.python.coverage.reportPaths=coverage.xml
+                sonar.python.xunit.reportPath=nosetests.xml
+                sonar.exclusions=**/.python_packages/**,**/test/**,**/__pycache__/**
+                sonar.coverage.exclusions=**/test/**
+
+          # 10. Ejecutar análisis SonarQube
+          - task: SonarQubeAnalyze@5
+            displayName: 'Ejecutar análisis SonarQube'
+
+          # 11. Publicar Quality Gate
+          - task: SonarQubePublish@5
+            displayName: 'Publicar Quality Gate SonarQube'
+            inputs:
+              pollingTimeoutSec: '300'
+
+          # 12. Preparar archivos (Excluir carpetas innecesarias antes de comprimir)
+          - task: CopyFiles@2
+            displayName: 'Filtrar archivos para empaquetado'
+            inputs:
+              SourceFolder: '$(System.DefaultWorkingDirectory)'
+              Contents: |
+                **
+                !.git/**
+                !__pycache__/**
+                !test/**
+                !.pytest_cache/**
+                !coverage_html/**
+                !nosetests.xml
+                !coverage.xml
+                !**/*.pyc
+              TargetFolder: '$(Build.ArtifactStagingDirectory)/staging'
+
+          # 13. Empaquetar como ZIP para despliegue
+          - task: ArchiveFiles@2
+            displayName: 'Empaquetar artefacto ZIP'
+            inputs:
+              rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/staging'
+              includeRootFolder: false
+              archiveType: 'zip'
+              archiveFile: '$(Build.ArtifactStagingDirectory)/$(artifactName)'
+              replaceExistingArchive: true
+
+          # 14. Publicar artefacto del pipeline
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publicar artefacto del build'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'drop'
+              publishLocation: 'Container'
+
+  # ═══════════════════════════════════════════
+  # STAGE CD — Despliegue a DESARROLLO
+  # ═══════════════════════════════════════════
+  - stage: CD_Desarrollo
+    displayName: 'Despliegue — Desarrollo'
+    dependsOn: CI
+    condition: >-
+      and(
+        eq(dependencies.CI.result, 'Succeeded'),
+        eq(variables['Build.SourceBranch'], 'refs/heads/desarrollo')
+      )
+    jobs:
+      - deployment: Deploy_Desarrollo
+        displayName: 'Desplegar en Desarrollo'
+        environment: 'desarrollo'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: DownloadBuildArtifacts@1
+                  displayName: '⬇Descargar artefacto'
+                  inputs:
+                    buildType: 'current'
+                    downloadType: 'single'
+                    artifactName: 'drop'
+                    downloadPath: '$(System.ArtifactsDirectory)'
+
+                - task: AzureFunctionApp@2
+                  displayName: '⚡ Desplegar Azure Function — Desarrollo'
+                  inputs:
+                    connectedServiceNameARM: 'AZ-SC-EPM-NP-AGORA-VPASUNTOSLEGALES-DLOL'
+                    appType: 'functionAppLinux'
+                    appName: 'AZ-FAPP-EPM-NP-IAESTUDIO-TITULOS-DLLO'
+                    package: '$(System.ArtifactsDirectory)/drop/$(artifactName)'
+                    deploymentMethod: 'zipDeploy'
+
+  # ═══════════════════════════════════════════
+  # STAGE CD — Despliegue a PRUEBAS
+  # ═══════════════════════════════════════════
+  - stage: CD_Pruebas
+    displayName: ' Despliegue — Pruebas'
+    dependsOn: CI
+    condition: >-
+      and(
+        eq(dependencies.CI.result, 'Succeeded'),
+        eq(variables['Build.SourceBranch'], 'refs/heads/pruebas')
+      )
+    jobs:
+      - deployment: Deploy_Pruebas
+        displayName: 'Desplegar en Pruebas (UAT)'
+        environment: 'pruebas'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: DownloadBuildArtifacts@1
+                  displayName: '⬇ Descargar artefacto'
+                  inputs:
+                    buildType: 'current'
+                    downloadType: 'single'
+                    artifactName: 'drop'
+                    downloadPath: '$(System.ArtifactsDirectory)'
+
+                - task: AzureFunctionApp@2
+                  displayName: '⚡ Desplegar Azure Function — Pruebas'
+                  inputs:
+                    connectedServiceNameARM: 'AZ-SC-EPM-NP-AGORA-VPASUNTOSLEGALES-UAT'
+                    appType: 'functionAppLinux'
+                    appName: 'AZ-FAPP-EPM-NP-CHATBOT-AGORA-UAT'
+                    package: '$(System.ArtifactsDirectory)/drop/$(artifactName)'
+                    deploymentMethod: 'zipDeploy'
+
+  # ═══════════════════════════════════════════
+  # STAGE CD — Despliegue a PRODUCCIÓN
+  # ═══════════════════════════════════════════
+  - stage: CD_Produccion
+    displayName: ' Despliegue — Producción'
+    dependsOn: CI
+    condition: >-
+      and(
+        eq(dependencies.CI.result, 'Succeeded'),
+        eq(variables['Build.SourceBranch'], 'refs/heads/produccion')
+      )
+    jobs:
+      - job: Aprobacion_Produccion
+        displayName: ' Validar aprobaciones de producción'
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: ' Aprobación manual requerida'
+            timeoutInMinutes: 1440
+            inputs:
+              notifyUsers: |
+                aprobadores-ti
+                aprobadores-negocio
+              instructions: |
+                Se requiere aprobación para despliegue en PRODUCCIÓN.
+
+                Artefacto: $(artifactName)
+                Build: $(Build.BuildNumber)
+                Rama: $(Build.SourceBranch)
+                Solicitado por: $(Build.RequestedFor)
+
+                Por favor, revise los resultados de pruebas y el análisis
+                de SonarQube antes de aprobar este despliegue.
+              onTimeout: 'reject'
+
+      - deployment: Deploy_Produccion
+        displayName: 'Desplegar en Producción'
+        dependsOn: Aprobacion_Produccion
+        environment: 'produccion'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: DownloadBuildArtifacts@1
+                  displayName: '⬇ Descargar artefacto'
+                  inputs:
+                    buildType: 'current'
+                    downloadType: 'single'
+                    artifactName: 'drop'
+                    downloadPath: '$(System.ArtifactsDirectory)'
+
+                - task: AzureFunctionApp@2
+                  displayName: '⚡ Desplegar Azure Function — Producción'
+                  inputs:
+                    connectedServiceNameARM: 'AZ-SC-EPM-NP-AGORA-VPASUNTOSLEGALES-PRD'
+                    appType: 'functionAppLinux'
+                    appName: 'AZ-FAPP-EPM-NP-CHATBOT-AGORA-PRD'
+                    package: '$(System.ArtifactsDirectory)/drop/$(artifactName)'
+                    deploymentMethod: 'zipDeploy'
