@@ -2,7 +2,7 @@
 
 Este proyecto implementa una solución basada en Azure Functions para automatizar el análisis de documentos legales en el proceso de estudio de títulos para préstamos de vivienda de EPM. Utiliza inteligencia artificial (Azure Document Intelligence y Azure OpenAI) para extraer información estructurada de certificados de tradición y libertad, minutas de constitución y cancelación de hipotecas, y generar los insumos necesarios para que el sistema Conecta elabore borradores de estudios de títulos y minutas.
 
-## 📋 Tabla de Contenidos
+## Tabla de Contenidos
 
 - [Descripción del Proyecto](#descripción-del-proyecto)
 - [Arquitectura](#arquitectura)
