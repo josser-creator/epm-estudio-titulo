@@ -1,309 +1,367 @@
-```markdown
-# EPM Estudio de Título – Legal Document Processing Pipeline
+# EPM - Estudio de Títulos: Automatización con IA
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Azure Functions](https://img.shields.io/badge/Azure%20Functions-4.x-orange)](https://docs.microsoft.com/azure/azure-functions/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Este proyecto implementa una solución basada en Azure Functions para automatizar el análisis de documentos legales en el proceso de estudio de títulos para préstamos de vivienda de EPM. Utiliza inteligencia artificial (Azure Document Intelligence y Azure OpenAI) para extraer información estructurada de certificados de tradición y libertad, minutas de constitución y cancelación de hipotecas, y generar los insumos necesarios para que el sistema Conecta elabore borradores de estudios de títulos y minutas.
 
-> **Automated extraction, classification, and structuring of legal documents for property title studies.**  
-> This serverless pipeline leverages Azure AI services to transform unstructured PDFs (property certificates, mortgage drafts) into standardized JSON, ready for integration with EPM's Conecta system.
+## 📋 Tabla de Contenidos
 
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Getting Started](#getting-started)
-  - [Local Setup](#local-setup)
-  - [Configuration](#configuration)
-- [Processing Pipeline](#processing-pipeline)
-- [Project Structure](#project-structure)
-- [Usage](#usage)
-  - [Local Testing](#local-testing)
-  - [Deployment to Azure](#deployment-to-azure)
-- [Adding a New Document Type](#adding-a-new-document-type)
-- [Monitoring & Maintenance](#monitoring--maintenance)
-- [Contributing](#contributing)
-- [License](#license)
+- [Descripción del Proyecto](#descripción-del-proyecto)
+- [Arquitectura](#arquitectura)
+- [Estructura del Repositorio](#estructura-del-repositorio)
+- [Requisitos Previos](#requisitos-previos)
+- [Configuración](#configuración)
+- [Despliegue](#despliegue)
+- [Uso](#uso)
+- [Flujo de Procesamiento](#flujo-de-procesamiento)
+- [Orquestación de Casos (Durable Functions)](#orquestación-de-casos-durable-functions)
+- [Limpieza Automática de Bronze](#limpieza-automática-de-bronze)
+- [Pruebas](#pruebas)
+- [Contribución](#contribución)
+- [Licencia](#licencia)
 
 ---
 
-## Overview
+## Descripción del Proyecto
 
-The current property title study process at EPM relies on manual review of non‑standardized documents, leading to inefficiencies and risks. This project implements an intelligent document processing pipeline that:
+El área jurídica de EPM requiere mejorar la eficiencia, trazabilidad y calidad del proceso de estudio de títulos para préstamos de vivienda. Actualmente, los documentos se reciben en formatos no estandarizados (fotos en Word, PDFs de baja calidad) y se han detectado riesgos de alteración de certificados.
 
-- Automatically detects new PDFs uploaded to Azure Data Lake.
-- Extracts text, tables, and metadata using **Azure AI Document Intelligence**.
-- Classifies documents (title study, mortgage constitution, mortgage cancellation) using **Azure OpenAI** (GPT-4) with carefully engineered prompts.
-- Structures extracted data according to predefined JSON schemas.
-- Stores both raw and standardized outputs in **Cosmos DB** and/or **Data Lake**.
-- Exposes processed results via a secure **API Management** endpoint for consumption by Conecta.
+La solución implementa:
 
-The solution is designed as a set of **Azure Functions** triggered by blob storage events, ensuring a scalable, cost‑effective, and serverless workflow.
+- **Análisis automático de documentos** mediante Azure Document Intelligence (OCR) y Azure OpenAI para extraer campos clave.
+- **Tres tipos de documentos procesados**:
+  - Estudio de Títulos (`estudio_titulos`)
+  - Minuta de Cancelación de Hipoteca (`minuta_cancelacion`)
+  - Minuta de Constitución de Hipoteca (`minuta_constitucion`)
+- **Almacenamiento en Data Lake** (Bronze, Silver, Gold) y **Cosmos DB** para trazabilidad.
+- **Orquestación con Durable Functions** para consolidar todos los documentos de un mismo caso y generar archivos maestros.
+- **Limpieza automática** del contenedor Bronze basada en días hábiles.
 
----
-
-## Architecture
-
-![High‑level architecture](docs/architecture-diagram.png)  
-*(Placeholder – actual diagram to be added)*
-
-| Component                  | Purpose                                                                      |
-|----------------------------|------------------------------------------------------------------------------|
-| Azure Data Lake Gen2       | Landing zone for raw PDFs and permanent storage of raw extracted data.       |
-| Azure Blob Storage Trigger | Initiates the function execution when a new file arrives.                    |
-| Azure Functions            | Orchestrates the entire pipeline: classification, extraction, validation.    |
-| Azure AI Document Intelligence | Extracts text, layout, tables, and key-value pairs from documents.       |
-| Azure OpenAI Service       | Performs document classification and field‑level extraction using GPT‑4.     |
-| Cosmos DB                  | Stores structured Master JSON documents for low‑latency retrieval.           |
-| Azure API Management       | Exposes endpoints for Conecta to submit files and retrieve results.          |
-| Azure Key Vault            | Securely stores API keys, endpoints, and connection strings.                 |
+**Fuera del alcance**:
+- Generación de documentos con IA.
+- Transformaciones o reglas de negocio aplicadas a la data extraída.
+- Integración con sistemas no mencionados (Conecta, Maya).
+- Desarrollo de modelos de datos, analíticas o tableros.
+- Conexión a fuentes externas.
 
 ---
 
-## Prerequisites
+## Arquitectura
 
-- **Python 3.10+** installed.
-- **Azure Functions Core Tools** v4+ (for local development).
-- **Azurite** (optional, for local storage emulation) or an active Azure Storage account.
-- An **Azure subscription** with access to:
-  - Azure AI Document Intelligence
-  - Azure OpenAI Service (with GPT‑4 or equivalent model deployed)
-  - Azure Cosmos DB (NoSQL API)
-  - Azure Storage Account (Data Lake Gen2 enabled)
-- **Git** for version control.
+![Arquitectura de la solución](docs/arquitectura.png) *(si se desea incluir imagen)*
+
+La solución utiliza los siguientes servicios de Azure:
+
+- **Azure Blob Storage / Data Lake Gen2**: Almacenamiento en capas (Bronze, Silver, Gold).
+- **Azure Functions**: Procesamiento basado en eventos (Blob Trigger, Timer Trigger) y orquestación (Durable Functions).
+- **Azure Document Intelligence**: Extracción de texto y layout de documentos PDF.
+- **Azure OpenAI**: Extracción estructurada de campos mediante prompts especializados.
+- **Azure Cosmos DB**: Persistencia de resultados y metadatos para trazabilidad.
+- **API Management** (no implementado directamente, pero se menciona en la arquitectura general).
+
+Flujo de datos:
+1. El usuario sube un PDF a la carpeta `bronze/conecta/vivienda/1/`.
+2. El Blob Trigger detecta el archivo, identifica el tipo de documento por el nombre y lo procesa:
+   - OCR con Document Intelligence.
+   - Extracción estructurada con OpenAI.
+   - Resultado guardado en Silver (`silver/conecta/vivienda/{tipo}/{caso_id}/{process_id}.json`) y Cosmos DB.
+3. Un proceso de orquestación (iniciado vía HTTP) consolida todos los archivos de un mismo caso y genera los archivos maestros en Gold (`gold/conecta/vivienda/master/{tipo}/{caso_id}/MASTER-*.json`).
+4. Un Timer Trigger mensual elimina archivos antiguos de Bronze según días hábiles de retención.
 
 ---
 
-## Getting Started
+## Estructura del Repositorio
 
-### Local Setup
+```
+.
+├── .vscode/                     # Configuración de VS Code para Azure Functions
+├── config/
+│   ├── __init__.py
+│   └── settings.py               # Configuración centralizada con Pydantic
+├── functions/
+│   ├── __init__.py
+│   ├── estudio_titulos_trigger.py
+│   ├── minuta_cancelacion_trigger.py
+│   └── minuta_constitucion_trigger.py
+├── processors/
+│   ├── __init__.py
+│   ├── base_processor.py          # Procesador base abstracto
+│   ├── estudio_titulos_processor.py
+│   ├── minuta_cancelacion_processor.py
+│   └── minuta_constitucion_processor.py
+├── prompts/
+│   ├── __init__.py
+│   ├── estudio_titulos_prompt.py
+│   ├── minuta_cancelacion_prompt.py
+│   └── minuta_constitucion_prompt.py
+├── schemas/
+│   ├── __init__.py
+│   ├── base_schema.py
+│   ├── estudio_titulos_schema.py
+│   ├── minuta_cancelacion_schema.py
+│   ├── minuta_constitucion_schema.py
+│   └── panel_schemas.py           # Esquemas para el formato PanelFields
+├── services/
+│   ├── __init__.py
+│   ├── base_service.py
+│   ├── azure_openai_service.py
+│   ├── chunking_service.py
+│   ├── cosmos_db_service.py
+│   ├── datalake_service.py
+│   └── document_intelligence_service.py
+├── utils/
+│   ├── __init__.py
+│   ├── business_days.py           # Cálculo de días hábiles
+│   ├── json_cleaner.py            # Limpieza de datos extraídos
+│   └── logger.py                   # Configuración de logging
+├── tests/
+│   └── test_function_app.py       # Pruebas unitarias
+├── activities.py                  # Actividades para Durable Functions
+├── function_app.py                # Punto de entrada de Azure Functions (Blob, Timer, Durable)
+├── local.settings.json            # Configuración local (no versionar)
+├── requirements.txt               # Dependencias
+├── host.json                      # Configuración del host de Functions
+└── README.md                      # Este documento
+```
 
-1. **Clone the repository**
+---
+
+## Requisitos Previos
+
+- Una suscripción de Azure con los siguientes recursos creados:
+  - **Storage Account (Data Lake Gen2)** con contenedores: `bronze`, `silver`, `gold`.
+  - **Document Intelligence** (antiguo Form Recognizer) con modelo prebuilt-layout.
+  - **Azure OpenAI** con un despliegue de modelo GPT-4o (o similar).
+  - **Cosmos DB** (core SQL) con base de datos y contenedor.
+  - **Function App** (Python 3.9+) con las siguientes configuraciones de aplicación.
+- Azure Functions Core Tools (para desarrollo local).
+- Python 3.9 o superior.
+- Extensiones de Azure Functions: `BlobTrigger`, `TimerTrigger`, `DurableFunctions`.
+
+---
+
+## Configuración
+
+1. **Clonar el repositorio**:
    ```bash
-   git clone https://github.com/your-org/epm-estudio-titulo.git
-   cd epm-estudio-titulo
+   git clone <repo-url>
+   cd epm-estudio-titulos
    ```
 
-2. **Create and activate a virtual environment**
+2. **Crear un entorno virtual** e instalar dependencias:
    ```bash
    python -m venv .venv
-   source .venv/bin/activate      # On Windows: .\.venv\Scripts\Activate
-   ```
-
-3. **Install dependencies**
-   ```bash
+   source .venv/bin/activate   # En Windows: .venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
-4. **Install Azure Functions Core Tools** (if not already installed)  
-   Follow the [official instructions](https://docs.microsoft.com/azure/azure-functions/functions-run-local).
+3. **Configurar variables de entorno**:
+   Copia el archivo `local.settings.json.example` a `local.settings.json` y completa los valores con los de tu suscripción.
 
-5. **(Optional) Start Azurite for local storage emulation**
-   ```bash
-   npm install -g azurite
-   azurite --silent --location ./azurite --debug ./azurite/debug.log
+   ```json
+   {
+     "IsEncrypted": false,
+     "Values": {
+       "AzureWebJobsStorage": "<connection-string>",
+       "FUNCTIONS_WORKER_RUNTIME": "python",
+       "DATALAKE_ACCOUNT_NAME": "azsaepmnpdatalakeg2",
+       "DATALAKE_ACCOUNT_KEY": "<account-key>",
+       "DATALAKE_CONTAINER_BRONZE": "bronze",
+       "DATALAKE_CONTAINER_SILVER": "silver",
+       "DATALAKE_CONTAINER_GOLD": "gold",
+       "DOCUMENT_INTELLIGENCE_ENDPOINT": "https://<resource>.cognitiveservices.azure.com/",
+       "DOCUMENT_INTELLIGENCE_KEY": "<key>",
+       "DOCUMENT_INTELLIGENCE_MODEL_ID": "prebuilt-layout",
+       "AZURE_OPENAI_ENDPOINT": "https://<resource>.openai.azure.com/",
+       "AZURE_OPENAI_KEY": "<key>",
+       "AZURE_OPENAI_DEPLOYMENT": "gpt-4o",
+       "AZURE_OPENAI_API_VERSION": "2024-12-01-preview",
+       "COSMOS_ENDPOINT": "https://<account>.documents.azure.com:443/",
+       "COSMOS_KEY": "<key>",
+       "COSMOS_DATABASE_NAME": "estudio_de_titulos",
+       "COSMOS_CONTAINER_NAME": "conecta-procesamientos",
+       "BRONZE_RETENTION_DAYS": "7",
+       "LTV_MAX_THRESHOLD": "0.8",
+       "REJECT_IF_ENCUMBRANCES": "true",
+       "CONFIDENCE_WEIGHTS": "{\"VIV_PrestamoDireccionMatricula\":0.3,\"VIV_Compradores\":0.2,\"VIV_identificacionCompradores\":0.2,\"GBL_Valordeprestamo\":0.2,\"TPC_ValorComercial\":0.1}"
+     }
+   }
    ```
 
-### Configuration
+   > **Nota**: `CONFIDENCE_WEIGHTS` debe ser un JSON válido como string.
 
-Create a `local.settings.json` file in the project root with the following structure:
-
-```json
-{
-  "IsEncrypted": false,
-  "Values": {
-    "AzureWebJobsStorage": "UseDevelopmentStorage=true",  // or actual connection string
-    "FUNCTIONS_WORKER_RUNTIME": "python",
-    "DOCUMENT_INTELLIGENCE_ENDPOINT": "https://<your-resource>.cognitiveservices.azure.com/",
-    "DOCUMENT_INTELLIGENCE_KEY": "<your-key>",
-    "AZURE_OPENAI_ENDPOINT": "https://<your-openai-resource>.openai.azure.com/",
-    "AZURE_OPENAI_KEY": "<your-key>",
-    "AZURE_OPENAI_DEPLOYMENT_NAME": "gpt-4",
-    "COSMOS_DB_CONNECTION_STRING": "<your-connection-string>",
-    "COSMOS_DB_DATABASE_NAME": "TitleStudyDB",
-    "COSMOS_DB_CONTAINER_NAME": "ProcessedDocuments",
-    "PROCESSED_CONTAINER": "standardized",
-    "RAW_CONTAINER": "raw"
-  }
-}
-```
-
-> **Important**: Never commit `local.settings.json` to source control. The repository includes `.gitignore` to prevent accidental commits.
-
----
-
-## Processing Pipeline
-
-1. **Blob Trigger**  
-   A new PDF uploaded to the configured input container (e.g., `landing`) triggers the function.
-
-2. **Text Extraction**  
-   `DocumentIntelligenceService` calls Azure AI Document Intelligence to extract:
-   - Raw text (`raw_text`)
-   - Page‑level content (`pages[]`)
-   - Tables (`tables[]`)
-   - Document metadata (confidence, OCR details).
-
-3. **Classification**  
-   `ClassificationProcessor` uses a prompt‑based call to Azure OpenAI to determine the document type (e.g., `title_study`, `mortgage_constitution`, `mortgage_cancellation`). The response includes a label, confidence score, and reasoning.
-
-4. **Text Cleaning**  
-   `JsonCleaner` normalises the extracted text: fixes encoding, normalises whitespace, standardises date formats, and removes extraneous characters.
-
-5. **Structured Extraction**  
-   Based on the classification, an extraction prompt is built using the corresponding schema (from `schemas/`). Azure OpenAI returns a JSON object with fields and per‑field confidence.
-
-6. **Validation & Aggregation**  
-   - The extracted JSON is validated against the schema (required fields, data types).
-   - Multiple documents of the same type are aggregated into a **Master JSON** file (e.g., `master_title_study.json`) containing metadata, a list of processed documents, and summary statistics.
-
-7. **Persistence**  
-   - Raw extracted data is saved to the `raw` container in Data Lake.
-   - Standardised Master JSON is stored in **Cosmos DB** for fast querying and also optionally in the `standardized` container.
-   - An index entry is updated to mark the document as processed (idempotent).
-
----
-
-## Project Structure
-
-```
-epm-estudio-titulo/
-├── .vscode/                    # VS Code settings (optional)
-├── docs/                        # Architecture diagrams, additional docs
-├── function_app.py              # Main Azure Functions entry point
-├── functions/
-│   ├── __init__.py
-│   └── blob_trigger.py          # Blob trigger binding
-├── processors/
-│   ├── __init__.py
-│   ├── base_processor.py        # Base class with reusable steps
-│   ├── title_study_processor.py
-│   └── mortgage_processor.py
-├── prompts/
-│   ├── __init__.py
-│   ├── classification_prompt.txt
-│   ├── title_study_extraction_prompt.txt
-│   └── mortgage_extraction_prompt.txt
-├── schemas/
-│   ├── __init__.py
-│   ├── base_schema.py            # Common field definitions
-│   ├── title_study_schema.py
-│   └── mortgage_schema.py
-├── services/
-│   ├── __init__.py
-│   ├── document_intelligence.py
-│   ├── openai_service.py
-│   ├── cosmos_service.py
-│   └── datalake_service.py
-├── utils/
-│   ├── __init__.py
-│   ├── json_cleaner.py
-│   └── logging_config.py
-├── tests/                        # Unit and integration tests
-├── requirements.txt
-├── requirements-dev.txt          # Additional dev dependencies
-├── .gitignore
-├── local.settings.json.example   # Example configuration (rename and fill)
-└── README.md
-```
-
----
-
-## Usage
-
-### Local Testing
-
-1. **Start the Functions host**
+4. **Ejecutar localmente**:
    ```bash
    func start
    ```
 
-2. **Upload a test PDF**  
-   Use Azure Storage Explorer, Azurite, or a Python script to place a PDF in the container that the trigger watches (e.g., `landing`).
+---
 
-3. **Observe logs**  
-   The console will show the pipeline steps: trigger fired, classification result, extraction, and storage confirmation.
+## Despliegue
 
-4. **Run tests**  
+### Despliegue en Azure
+
+1. **Crear la Function App** en Azure (Runtime Stack: Python, versión 3.9+).
+2. **Configurar las variables de aplicación** en la Function App con los mismos valores que en `local.settings.json`.
+3. **Desplegar el código** usando Azure Functions Core Tools, VS Code o GitHub Actions.
    ```bash
-   pytest tests/ -v
+   func azure functionapp publish <nombre-function-app>
    ```
 
-### Deployment to Azure
+### Configuración de Triggers
 
-The project includes infrastructure as code (Bicep/ARM) for reproducible deployments. Follow these steps:
-
-1. **Create Azure resources**  
-   Use the provided Bicep template (`infra/main.bicep`) to provision all required services (Storage, Document Intelligence, OpenAI, Cosmos DB, etc.).
-
-2. **Configure CI/CD pipeline**  
-   A sample GitHub Actions workflow (`.github/workflows/deploy.yml`) is included. It will:
-   - Run tests.
-   - Package the function app.
-   - Deploy to Azure Functions using the `AZURE_FUNCTIONAPP_PUBLISH_PROFILE` secret.
-
-3. **Set application settings**  
-   After deployment, configure the same settings as in `local.settings.json` (but using Azure Key Vault for secrets) in the Function App's Configuration blade.
-
-4. **Verify deployment**  
-   Upload a document to the input container and monitor Application Insights for successful execution.
+- **Blob Trigger**: La función `procesar_documento_blob` se activa automáticamente al subir archivos a `bronze/conecta/vivienda/1/`.
+- **Timer Trigger**: `cleanup_bronze_timer` se ejecuta el primer día de cada mes (o según la programación configurada).
+- **HTTP Starter**: Para iniciar la orquestación, se expone el endpoint `POST /orquestar/sintesis/{caso_id}`.
 
 ---
 
-## Adding a New Document Type
+## Uso
 
-To extend the pipeline for a new document type (e.g., `property_registration`):
+### Subir documentos para procesamiento
 
-1. **Create a schema**  
-   In `schemas/`, create a file `new_type_schema.py` defining the expected JSON fields (including any nested structures).
+1. **Preparar los archivos**: Los PDF deben tener nombres que permitan identificar el tipo:
+   - Estudio de Títulos: `estudio_de_titulos_<caso>.pdf` (contiene "estudio_de_titulos" o "estudio de titulos").
+   - Minuta de Cancelación: `minuta_cancelacion_<caso>.pdf` (contiene "cancelacion").
+   - Minuta de Constitución: `minuta_constitucion_<caso>.pdf` (contiene "constitucion").
+2. **Subir a Azure Storage**: Colocar el archivo en el contenedor `bronze`, en la ruta `conecta/vivienda/1/`. Puede hacerse con Azure Storage Explorer, AzCopy o SDK.
 
-2. **Write extraction prompt**  
-   Add a new prompt file in `prompts/`, e.g., `new_type_extraction_prompt.txt`, instructing the model to output JSON matching the schema.
+   Ejemplo: `bronze/conecta/vivienda/1/estudio_de_titulos_caso-123.pdf`
 
-3. **Implement processor**  
-   Create `processors/new_type_processor.py` inheriting from `BaseProcessor`. Override methods if special handling is needed (e.g., custom validation).
+3. **El proceso se ejecutará automáticamente**:
+   - El Blob Trigger detecta el archivo, lee el contenido y determina el tipo.
+   - Se instancia el procesador correspondiente.
+   - El resultado JSON se guarda en `silver/conecta/vivienda/<tipo>/<caso_id>/<process_id>.json` y en Cosmos DB.
 
-4. **Update classification prompt**  
-   Modify `prompts/classification_prompt.txt` to include the new document type and examples.
+### Obtener el resultado
 
-5. **Register the processor**  
-   In the main orchestrator (`function_app.py` or a factory), map the classifier label to the new processor class.
+- Desde Cosmos DB: consultar por `procesoId` o `casoId`.
+- Desde Data Lake Silver: navegar a la ruta generada.
+- El archivo contiene:
+  ```json
+  {
+    "metadata": { ... },
+    "datos_extraidos": {
+      "PanelFields": [ ... ]
+    }
+  }
+  ```
 
----
+### Consolidar un caso (orquestación)
 
-## Monitoring & Maintenance
+Una vez que se hayan procesado todos los documentos de un caso (por ejemplo, estudio de títulos y minutas), se puede iniciar la orquestación para generar los archivos maestros en Gold.
 
-- **Logging**: All steps are logged with appropriate severity. Use Azure Application Insights to query logs and set up alerts.
-- **Idempotency**: Processed documents are flagged in Cosmos DB to avoid reprocessing. The blob trigger uses `BlobClient` with lease management to prevent concurrent processing.
-- **Versioning**: Both prompts and schemas are versioned. The `processor_version` field in the Master JSON records the version of code/schema used.
-- **Cost optimisation**: Monitor Azure OpenAI token usage and Document Intelligence page counts. Consider caching classification results for identical documents.
-- **Fallback & manual review**: If classification confidence is below a threshold (e.g., 0.7), the document is moved to a `needs_review` container and a notification is sent.
-
----
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
-
-Ensure that your code passes all tests and includes appropriate documentation.
-
----
-
-## License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
----
-
-**Team:** DATAKNOW S.A.S  
-**Contact:** [your-email@dataknow.com](mailto:your-email@dataknow.com)
+```bash
+curl -X POST https://<function-app>.azurewebsites.net/orquestar/sintesis/caso-123
 ```
+
+La respuesta incluirá URLs para verificar el estado de la orquestación. Al finalizar, se generarán archivos en:
+- `gold/conecta/vivienda/master/estudio_titulos/caso-123/MASTER-<uuid>.json`
+- `gold/conecta/vivienda/master/minuta_cancelacion/caso-123/MASTER-<uuid>.json`
+- `gold/conecta/vivienda/master/minuta_constitucion/caso-123/MASTER-<uuid>.json`
+
+Estos archivos contienen los campos con prefijo `3_` (ej. `3_VIV_PrestamoDireccionMatricula`) y, en el caso de estudio de títulos, metadatos adicionales como confianza y razones de viabilidad.
+
+---
+
+## Flujo de Procesamiento
+
+### 1. Detección de tipo de documento
+
+La función `detectar_tipo_por_nombre` analiza el nombre del archivo y retorna una clave (`EstudioTitulos`, `MinutaCancelacion`, `MinutaConstitucion`) o `None` si no coincide.
+
+### 2. Procesamiento con IA
+
+Cada procesador hereda de `BaseDocumentProcessor` e implementa:
+- `system_name`: identificador del sistema.
+- `system_prompt`: prompt específico para el tipo de documento (definido en `prompts/`).
+- `schema_class`: esquema Pydantic que define la estructura de salida (`PanelFields`).
+
+Pasos:
+- **OCR con Document Intelligence**: se obtiene el texto completo y metadatos del PDF.
+- **Extracción con OpenAI**: se envía el texto y el prompt; si el texto excede el límite de caracteres, se aplica chunking automático (`ChunkingService`).
+- **Limpieza genérica**: `JsonCleaner` elimina espacios redundantes y normaliza.
+- **Enriquecimiento con metadatos**: se agrega `_procesamiento` con fecha, origen, etc.
+- **Validación específica** (override en cada procesador).
+
+### 3. Persistencia
+
+`persistir_resultados` guarda:
+- En **Data Lake Silver**: archivo JSON con metadatos y datos extraídos.
+- En **Cosmos DB**: documento con estructura plana para consultas rápidas.
+
+### 4. Orquestación
+
+Las actividades (`activities.py`) se encargan de:
+- `leer_resultados_intermedios`: lista y lee todos los JSON de un caso en Silver.
+- `sintetizar_resultados`: combina los datos, calcula confianza, evalúa viabilidad (usando reglas configurables) y genera los archivos maestros en Gold.
+
+La viabilidad se evalúa con reglas como:
+- Matrícula obligatoria.
+- Concepto jurídico favorable/desfavorable.
+- Gravámenes vigentes (según configuración).
+- Edad del solicitante (si existe) y score crediticio (si existe).
+
+### 5. Limpieza de Bronze
+
+El timer `cleanup_bronze_timer` recorre todos los archivos del contenedor Bronze, calcula los días hábiles transcurridos desde su última modificación hasta la fecha actual, y elimina aquellos que superen el umbral (`BRONZE_RETENTION_DAYS`).
+
+---
+
+## Orquestación de Casos (Durable Functions)
+
+La orquestación se define en `sintetizar_caso_orchestrator`:
+
+1. **Entrada**: `caso_id`.
+2. **Actividad 1**: `leer_resultados_intermedios_activity` → obtiene todos los resultados de Silver para ese caso.
+3. **Actividad 2**: `generar_resumen_activity` → ejecuta `activity_sintetizar_resultados`, que consolida y guarda en Gold.
+4. **Retorno**: rutas de los archivos generados.
+
+Para iniciar la orquestación, se usa el endpoint HTTP `POST /orquestar/sintesis/{caso_id}`. La respuesta incluye un `statusQueryGetUri` para monitorear el progreso.
+
+---
+
+## Limpieza Automática de Bronze
+
+- **Programación**: `0 0 1 * * *` (primer día de cada mes a medianoche UTC).
+- **Cálculo de días hábiles**: se utiliza la función `business_days_between` (excluye sábados y domingos) para determinar si un archivo debe ser eliminado.
+- **Configuración**: `BRONZE_RETENTION_DAYS` en días hábiles.
+
+---
+
+## Pruebas
+
+Las pruebas unitarias se encuentran en `tests/test_function_app.py`. Para ejecutarlas:
+
+```bash
+pytest tests/ -v
+```
+
+Se utilizan mocks para simular los servicios de Azure y verificar el comportamiento de las funciones.
+
+---
+
+## Consideraciones Técnicas
+
+- **Calidad de los PDFs**: La extracción depende de la legibilidad de los documentos. PDFs escaneados de baja calidad pueden afectar el OCR.
+- **Límites de OpenAI**: Textos muy largos se dividen automáticamente; sin embargo, la precisión puede disminuir en fragmentos.
+- **Seguridad**: Las claves de acceso se gestionan mediante variables de entorno. No se deben hardcodear.
+- **Monitoreo**: La aplicación utiliza `logging` configurado para enviar trazas a Azure Application Insights (si está habilitado).
+
+---
+
+## Contribución
+
+1. Fork el repositorio.
+2. Cree una rama para su feature (`git checkout -b feature/nueva-funcionalidad`).
+3. Realice los cambios y agregue pruebas.
+4. Asegúrese de que todas las pruebas pasen.
+5. Envíe un Pull Request.
+
+---
+
+## Licencia
+
+Este proyecto es propiedad de EPM y su uso está restringido a los términos establecidos en el contrato con DataKnow.
+
+---
+
+**Documentación generada a partir del código fuente y la descripción del proyecto.**
