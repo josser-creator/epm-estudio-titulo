@@ -46,7 +46,7 @@ La solución implementa:
 
 ## Arquitectura
 
-![Arquitectura de la solución](docs/arquitectura.png) *(si se desea incluir imagen)*
+![Arquitectura de la solución](epm_arquitectura_estudio_titulo_ACTUALIZADAdrawio.png) *(si se desea incluir imagen)*
 
 La solución utiliza los siguientes servicios de Azure:
 
