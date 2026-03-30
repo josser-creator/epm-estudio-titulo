@@ -6,6 +6,8 @@ Timer Trigger para limpieza automática del contenedor bronze.
 Incluye orquestación Durable para consolidar resultados de un caso.
 """
 
+import json
+
 import azure.functions as func
 import azure.durable_functions as df
 import logging
@@ -15,7 +17,7 @@ from datetime import datetime as dt
 import os
 from typing import List, Dict, Any, Union
 
-from azure.storage.filedatalake import DataLakeServiceClient
+# from azure.storage.filedatalake import DataLakeServiceClient
 
 from processors import (
     EstudioTitulosProcessor,
@@ -26,6 +28,7 @@ from processors import (
 from services import DataLakeService, CosmosDBService
 from config import get_settings
 from utils.business_days import business_days_between as business_days
+from services.conecta_service import ConectaAPIService
 
 
 # =========================================================
@@ -89,23 +92,94 @@ def sintetizar_caso_orchestrator(context: df.DurableOrchestrationContext):
 # HTTP Starter
 # =========================================================
 
-@app.route(route="orquestar/sintesis/{caso_id}", methods=["POST"])
-@app.durable_client_input(client_name="client")
-async def start_sintesis(req: func.HttpRequest, client):
+# @app.route(route="orquestar/sintesis/{caso_id}", methods=["POST"])
+# @app.durable_client_input(client_name="client")
+# async def start_sintesis(req: func.HttpRequest, client):
+#     """
+#     Inicia la orquestación para un caso específico.
+#     Ejemplo: POST /orquestar/sintesis/caso-123
+#     """
+#     caso_id = req.route_params.get("caso_id")
+#     if not caso_id:
+#         return func.HttpResponse("Debe proporcionar un caso_id", status_code=400)
+
+#     instance_id = f"sintesis-{caso_id}-{uuid.uuid4()}"
+#     await client.start_new("sintetizar_caso_orchestrator", instance_id, caso_id)
+
+#     return client.create_check_status_response(req, instance_id)
+
+
+# =========================================================
+# Función HTTP de prueba para Conecta API
+# =========================================================
+@app.route(route="test-conecta", methods=["GET", "POST"])
+def test_conecta(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Inicia la orquestación para un caso específico.
-    Ejemplo: POST /orquestar/sintesis/caso-123
+    Función HTTP de prueba para verificar la conexión con la API de Conecta.
     """
-    caso_id = req.route_params.get("caso_id")
-    if not caso_id:
-        return func.HttpResponse("Debe proporcionar un caso_id", status_code=400)
-
-    instance_id = f"sintesis-{caso_id}-{uuid.uuid4()}"
-    await client.start_new("sintetizar_caso_orchestrator", instance_id, caso_id)
-
-    return client.create_check_status_response(req, instance_id)
-
-
+    import json
+    import traceback
+    
+    logger.info("Invocando test_conecta")
+    
+    try:
+        service = ConectaAPIService()
+        
+        # Intentar obtener token manualmente para ver el error
+        logger.info("Intentando obtener token...")
+        try:
+            token = service._get_token()
+            logger.info(f"Token obtenido: {token[:20]}...")
+            token_obtenido = True
+        except Exception as token_error:
+            logger.error(f"Error obteniendo token: {str(token_error)}")
+            logger.error(traceback.format_exc())
+            token_obtenido = False
+        
+        config_info = {
+            "api_url": settings.conecta_api_url,
+            "token_url": settings.conecta_token_url,
+            "client_id": settings.conecta_client_id,
+            "scope": settings.conecta_scope,
+            "client_secret_length": len(settings.conecta_client_secret) if settings.conecta_client_secret else 0,
+            "client_secret_first_chars": settings.conecta_client_secret[:10] if settings.conecta_client_secret else "None"
+        }
+        
+        if token_obtenido:
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "success",
+                    "message": "Conexión exitosa con Azure AD",
+                    "config": config_info
+                }, indent=2, ensure_ascii=False),
+                mimetype="application/json",
+                status_code=200
+            )
+        else:
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "error",
+                    "message": "Error de autenticación con Azure AD - No se pudo obtener token",
+                    "config": config_info,
+                    "suggestion": "Verifica que el CONECTA_CLIENT_SECRET en local.settings.json sea el valor real, no el nombre de referencia"
+                }, indent=2, ensure_ascii=False),
+                mimetype="application/json",
+                status_code=401
+            )
+        
+    except Exception as e:
+        error_msg = f"Error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({
+                "status": "error",
+                "message": error_msg,
+                "traceback": traceback.format_exc()
+            }, indent=2, ensure_ascii=False),
+            mimetype="application/json",
+            status_code=500
+        )
+    
 # =========================================================
 # Configuración de tipos
 # =========================================================
@@ -316,73 +390,73 @@ def procesar_documento_blob(blob: func.InputStream):
 # Timer Trigger limpieza bronze
 # =========================================================
 
-@app.timer_trigger(
-    schedule="0 0 1 * * *",
-    arg_name="myTimer",
-    run_on_startup=False
-)
-def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
-    """
-    Timer trigger que se ejecuta el primer día de cada mes para limpiar
-    archivos antiguos del contenedor bronze basado en días hábiles.
-    """
+# @app.timer_trigger(
+#     schedule="0 0 1 * * *",
+#     arg_name="myTimer",
+#     run_on_startup=False
+# )
+# def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
+#     """
+#     Timer trigger que se ejecuta el primer día de cada mes para limpiar
+#     archivos antiguos del contenedor bronze basado en días hábiles.
+#     """
 
-    logger.info("Iniciando limpieza automática de bronze (días hábiles)")
+#     logger.info("Iniciando limpieza automática de bronze (días hábiles)")
 
-    try:
-        retention_days = settings.bronze_retention_days
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
+#     try:
+#         retention_days = settings.bronze_retention_days
+#         now_utc = datetime.datetime.now(datetime.timezone.utc)
 
-        account_url = f"https://{settings.datalake_account_name}.dfs.core.windows.net"
-        data_lake_client = DataLakeServiceClient(
-            account_url=account_url,
-            credential=settings.datalake_account_key
-        )
+#         account_url = f"https://{settings.datalake_account_name}.dfs.core.windows.net"
+#         data_lake_client = DataLakeServiceClient(
+#             account_url=account_url,
+#             credential=settings.datalake_account_key
+#         )
 
-        file_system_client = data_lake_client.get_file_system_client(
-            settings.datalake_container_bronze
-        )
+#         file_system_client = data_lake_client.get_file_system_client(
+#             settings.datalake_container_bronze
+#         )
 
-        paths = file_system_client.get_paths(recursive=True)
-        deleted_count = 0
+#         paths = file_system_client.get_paths(recursive=True)
+#         deleted_count = 0
 
-        for path in paths:
-            if path.is_directory:
-                continue
+#         for path in paths:
+#             if path.is_directory:
+#                 continue
 
-            last_modified = path.last_modified
-            if not last_modified:
-                continue
+#             last_modified = path.last_modified
+#             if not last_modified:
+#                 continue
 
-            if last_modified.tzinfo is None:
-                last_modified = last_modified.replace(
-                    tzinfo=datetime.timezone.utc
-                )
-            else:
-                last_modified = last_modified.astimezone(
-                    datetime.timezone.utc
-                )
+#             if last_modified.tzinfo is None:
+#                 last_modified = last_modified.replace(
+#                     tzinfo=datetime.timezone.utc
+#                 )
+#             else:
+#                 last_modified = last_modified.astimezone(
+#                     datetime.timezone.utc
+#                 )
 
-            days_elapsed = business_days(last_modified, now_utc)
+#             days_elapsed = business_days(last_modified, now_utc)
 
-            if days_elapsed >= retention_days:
-                file_client = file_system_client.get_file_client(path.name)
-                file_client.delete_file()
+#             if days_elapsed >= retention_days:
+#                 file_client = file_system_client.get_file_client(path.name)
+#                 file_client.delete_file()
 
-                logger.info(
-                    f"Eliminado archivo: {path.name} | "
-                    f"Días hábiles transcurridos: {days_elapsed}"
-                )
+#                 logger.info(
+#                     f"Eliminado archivo: {path.name} | "
+#                     f"Días hábiles transcurridos: {days_elapsed}"
+#                 )
 
-                deleted_count += 1
+#                 deleted_count += 1
 
-        logger.info(
-            f"Limpieza completada. {deleted_count} archivos eliminados."
-        )
+#         logger.info(
+#             f"Limpieza completada. {deleted_count} archivos eliminados."
+#         )
 
-    except Exception as e:
-        logger.error(
-            f"Error en limpieza automática: {str(e)}",
-            exc_info=True
-        )
-        raise
+#     except Exception as e:
+#         logger.error(
+#             f"Error en limpieza automática: {str(e)}",
+#             exc_info=True
+#         )
+#         raise

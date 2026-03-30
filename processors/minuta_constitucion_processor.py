@@ -30,3 +30,4 @@ class MinutaConstitucionProcessor(BaseDocumentProcessor):
         if not field_dict.get('TPC_ValorComercial'):
             self.logger.warning("No se encontró valor de compraventa")
         return data
+

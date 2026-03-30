@@ -49,3 +49,4 @@ def process_minuta_constitucion(blob: func.InputStream) -> None:
     except Exception as e:
         logger.exception(f"Error processing Minuta de Constitucion: {blob.name}")
         raise
+

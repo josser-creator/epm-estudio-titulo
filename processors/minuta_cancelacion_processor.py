@@ -29,3 +29,4 @@ class MinutaCancelacionProcessor(BaseDocumentProcessor):
         if not field_dict.get('VIV_numeroEscrituraPublica'):
             self.logger.warning("No se encontró número de escritura de cancelación")
         return data
+

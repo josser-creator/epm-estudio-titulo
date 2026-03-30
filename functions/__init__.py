@@ -7,3 +7,4 @@ __all__ = [
     "process_minuta_cancelacion",
     "process_minuta_constitucion",
 ]
+

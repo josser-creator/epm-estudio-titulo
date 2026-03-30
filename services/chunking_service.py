@@ -45,3 +45,4 @@ class ChunkingService:
 
         self.logger.info(f"Texto dividido en {len(chunks)} fragmentos")
         return chunks
+

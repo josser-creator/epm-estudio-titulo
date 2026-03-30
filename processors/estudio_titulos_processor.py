@@ -39,3 +39,4 @@ class EstudioTitulosProcessor(BaseDocumentProcessor):
             'propietarios': field_dict.get('VIV_Compradores'),
         }
         return data
+

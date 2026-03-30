@@ -33,3 +33,4 @@ class BaseService(ABC):
     def _log_warning(self, message: str, **kwargs: Any) -> None:
         """Log de advertencias con contexto adicional."""
         self.logger.warning(message, extra=kwargs)
+

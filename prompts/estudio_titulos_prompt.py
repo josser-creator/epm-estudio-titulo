@@ -50,3 +50,4 @@ Ejemplo de estructura:
 - No incluyas ningún otro campo fuera de los listados.
 - Responde ÚNICAMENTE con el JSON, sin texto adicional.
 """
+
