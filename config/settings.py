@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     ltv_max_threshold: float = Field(
         default=0.8,
         alias="LTV_MAX_THRESHOLD"
-    )
+    ) 
 
     # Rechazar automáticamente si hay gravámenes
     reject_if_encumbrances: bool = Field(
