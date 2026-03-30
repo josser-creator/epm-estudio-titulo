@@ -93,7 +93,7 @@ class Settings(BaseSettings):
         alias="CONECTA_TOKEN_URL"
     )
     conecta_api_url: str = Field(
-        default="https://apimnp.epm.com.co/Conecta/ViviendaRespuestaIA",
+        default="https://apimnp.epm.com.co/Conecta/ViviendaRespuestaIA", 
         alias="CONECTA_API_URL"
     )
 
