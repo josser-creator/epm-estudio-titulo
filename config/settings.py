@@ -97,7 +97,7 @@ class Settings(BaseSettings):
         alias="CONECTA_API_URL"
     )
 
-    # Pesos para cálculo de confianza
+    # Pesos para cálculo de confianza 
     confidence_weights: dict = Field(
         default={
             "VIV_PrestamoDireccionMatricula": 0.3,
