@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     conecta_client_secret: str = Field(alias="CONECTA_CLIENT_SECRET")
     conecta_scope: str = Field(
         default="api://135bd0e9-a231-4869-9e15-23c2c3becb15/.default",
-        alias="CONECTA_SCOPE"
+        alias="CONECTA_SCOPE" 
     )
     conecta_token_url: str = Field(
         default="https://login.microsoftonline.com/bf1ce8b5-5d39-4bc5-ad6e-07b3e4d7d67a/oauth2/v2.0/token",
