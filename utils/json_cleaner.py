@@ -304,3 +304,4 @@ class JsonCleaner:
                 pass
 
         return None
+

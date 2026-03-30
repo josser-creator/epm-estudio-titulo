@@ -137,3 +137,5 @@ class DocumentIntelligenceService(BaseService):
         """
         result = self.analyze_document(pdf_bytes)
         return result.get("content", "")
+
+

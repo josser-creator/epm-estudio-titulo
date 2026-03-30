@@ -44,3 +44,4 @@ def business_days_between(start: datetime.datetime, end: datetime.datetime) -> i
             business_days += 1
 
     return business_days
+

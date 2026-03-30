@@ -76,3 +76,4 @@ class CosmosDBService(BaseService):
         except Exception as e:
             self._log_error("Failed to read document from Cosmos DB", error=e)
             raise
+

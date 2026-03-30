@@ -102,3 +102,5 @@ class ContextLogger:
     def exception(self, message: str, **kwargs) -> None:
         """Log de excepcion."""
         self._logger.exception(self._format_message(message), **kwargs)
+
+

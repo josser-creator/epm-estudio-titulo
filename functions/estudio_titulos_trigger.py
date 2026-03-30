@@ -50,3 +50,4 @@ def process_estudio_titulos(blob: func.InputStream) -> None:
     except Exception as e:
         logger.exception(f"Error processing Estudio de Titulos: {blob.name}")
         raise
+

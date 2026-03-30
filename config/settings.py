@@ -81,6 +81,22 @@ class Settings(BaseSettings):
         alias="REJECT_IF_ENCUMBRANCES"
     )
 
+    # Conecta API
+    conecta_client_id: str = Field(alias="CONECTA_CLIENT_ID")
+    conecta_client_secret: str = Field(alias="CONECTA_CLIENT_SECRET")
+    conecta_scope: str = Field(
+        default="api://135bd0e9-a231-4869-9e15-23c2c3becb15/.default",
+        alias="CONECTA_SCOPE"
+    )
+    conecta_token_url: str = Field(
+        default="https://login.microsoftonline.com/bf1ce8b5-5d39-4bc5-ad6e-07b3e4d7d67a/oauth2/v2.0/token",
+        alias="CONECTA_TOKEN_URL"
+    )
+    conecta_api_url: str = Field(
+        default="https://apimnp.epm.com.co/Conecta/ViviendaRespuestaIA",
+        alias="CONECTA_API_URL"
+    )
+
     # Pesos para cálculo de confianza
     confidence_weights: dict = Field(
         default={
@@ -97,3 +113,5 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
+
+
