@@ -6,8 +6,6 @@ Timer Trigger para limpieza automática del contenedor bronze.
 Incluye orquestación Durable para consolidar resultados de un caso.
 """
 
-import json
-
 import azure.functions as func
 import azure.durable_functions as df
 import logging
@@ -17,7 +15,7 @@ from datetime import datetime as dt
 import os
 from typing import List, Dict, Any, Union
 
-# from azure.storage.filedatalake import DataLakeServiceClient
+from azure.storage.filedatalake import DataLakeServiceClient
 
 from processors import (
     EstudioTitulosProcessor,
@@ -28,7 +26,6 @@ from processors import (
 from services import DataLakeService, CosmosDBService
 from config import get_settings
 from utils.business_days import business_days_between as business_days
-from services.conecta_service import ConectaAPIService
 
 
 # =========================================================
@@ -92,94 +89,23 @@ def sintetizar_caso_orchestrator(context: df.DurableOrchestrationContext):
 # HTTP Starter
 # =========================================================
 
-# @app.route(route="orquestar/sintesis/{caso_id}", methods=["POST"])
-# @app.durable_client_input(client_name="client")
-# async def start_sintesis(req: func.HttpRequest, client):
-#     """
-#     Inicia la orquestación para un caso específico.
-#     Ejemplo: POST /orquestar/sintesis/caso-123
-#     """
-#     caso_id = req.route_params.get("caso_id")
-#     if not caso_id:
-#         return func.HttpResponse("Debe proporcionar un caso_id", status_code=400)
-
-#     instance_id = f"sintesis-{caso_id}-{uuid.uuid4()}"
-#     await client.start_new("sintetizar_caso_orchestrator", instance_id, caso_id)
-
-#     return client.create_check_status_response(req, instance_id)
-
-
-# =========================================================
-# Función HTTP de prueba para Conecta API
-# =========================================================
-@app.route(route="test-conecta", methods=["GET", "POST"])
-def test_conecta(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="orquestar/sintesis/{caso_id}", methods=["POST"])
+@app.durable_client_input(client_name="client")
+async def start_sintesis(req: func.HttpRequest, client):
     """
-    Función HTTP de prueba para verificar la conexión con la API de Conecta.
+    Inicia la orquestación para un caso específico.
+    Ejemplo: POST /orquestar/sintesis/caso-123
     """
-    import json
-    import traceback
-    
-    logger.info("Invocando test_conecta")
-    
-    try:
-        service = ConectaAPIService()
-        
-        # Intentar obtener token manualmente para ver el error
-        logger.info("Intentando obtener token...")
-        try:
-            token = service._get_token()
-            logger.info(f"Token obtenido: {token[:20]}...")
-            token_obtenido = True
-        except Exception as token_error:
-            logger.error(f"Error obteniendo token: {str(token_error)}")
-            logger.error(traceback.format_exc())
-            token_obtenido = False
-        
-        config_info = {
-            "api_url": settings.conecta_api_url,
-            "token_url": settings.conecta_token_url,
-            "client_id": settings.conecta_client_id,
-            "scope": settings.conecta_scope,
-            "client_secret_length": len(settings.conecta_client_secret) if settings.conecta_client_secret else 0,
-            "client_secret_first_chars": settings.conecta_client_secret[:10] if settings.conecta_client_secret else "None"
-        }
-        
-        if token_obtenido:
-            return func.HttpResponse(
-                json.dumps({
-                    "status": "success",
-                    "message": "Conexión exitosa con Azure AD",
-                    "config": config_info
-                }, indent=2, ensure_ascii=False),
-                mimetype="application/json",
-                status_code=200
-            )
-        else:
-            return func.HttpResponse(
-                json.dumps({
-                    "status": "error",
-                    "message": "Error de autenticación con Azure AD - No se pudo obtener token",
-                    "config": config_info,
-                    "suggestion": "Verifica que el CONECTA_CLIENT_SECRET en local.settings.json sea el valor real, no el nombre de referencia"
-                }, indent=2, ensure_ascii=False),
-                mimetype="application/json",
-                status_code=401
-            )
-        
-    except Exception as e:
-        error_msg = f"Error: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return func.HttpResponse(
-            json.dumps({
-                "status": "error",
-                "message": error_msg,
-                "traceback": traceback.format_exc()
-            }, indent=2, ensure_ascii=False),
-            mimetype="application/json",
-            status_code=500
-        )
-    
+    caso_id = req.route_params.get("caso_id")
+    if not caso_id:
+        return func.HttpResponse("Debe proporcionar un caso_id", status_code=400)
+
+    instance_id = f"sintesis-{caso_id}-{uuid.uuid4()}"
+    await client.start_new("sintetizar_caso_orchestrator", instance_id, caso_id)
+
+    return client.create_check_status_response(req, instance_id)
+
+
 # =========================================================
 # Configuración de tipos
 # =========================================================
