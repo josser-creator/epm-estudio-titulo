@@ -390,73 +390,73 @@ def procesar_documento_blob(blob: func.InputStream):
 # Timer Trigger limpieza bronze
 # =========================================================
 
-# @app.timer_trigger(
-#     schedule="0 0 1 * * *",
-#     arg_name="myTimer",
-#     run_on_startup=False
-# )
-# def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
-#     """
-#     Timer trigger que se ejecuta el primer día de cada mes para limpiar
-#     archivos antiguos del contenedor bronze basado en días hábiles.
-#     """
+@app.timer_trigger(
+    schedule="0 0 1 * * *",
+    arg_name="myTimer",
+    run_on_startup=False
+)
+def cleanup_bronze_timer(myTimer: func.TimerRequest) -> None:
+    """
+    Timer trigger que se ejecuta el primer día de cada mes para limpiar
+    archivos antiguos del contenedor bronze basado en días hábiles.
+    """
 
-#     logger.info("Iniciando limpieza automática de bronze (días hábiles)")
+    logger.info("Iniciando limpieza automática de bronze (días hábiles)")
 
-#     try:
-#         retention_days = settings.bronze_retention_days
-#         now_utc = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        retention_days = settings.bronze_retention_days
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
 
-#         account_url = f"https://{settings.datalake_account_name}.dfs.core.windows.net"
-#         data_lake_client = DataLakeServiceClient(
-#             account_url=account_url,
-#             credential=settings.datalake_account_key
-#         )
+        account_url = f"https://{settings.datalake_account_name}.dfs.core.windows.net"
+        data_lake_client = DataLakeServiceClient(
+            account_url=account_url,
+            credential=settings.datalake_account_key
+        )
 
-#         file_system_client = data_lake_client.get_file_system_client(
-#             settings.datalake_container_bronze
-#         )
+        file_system_client = data_lake_client.get_file_system_client(
+            settings.datalake_container_bronze
+        )
 
-#         paths = file_system_client.get_paths(recursive=True)
-#         deleted_count = 0
+        paths = file_system_client.get_paths(recursive=True)
+        deleted_count = 0
 
-#         for path in paths:
-#             if path.is_directory:
-#                 continue
+        for path in paths:
+            if path.is_directory:
+                continue
 
-#             last_modified = path.last_modified
-#             if not last_modified:
-#                 continue
+            last_modified = path.last_modified
+            if not last_modified:
+                continue
 
-#             if last_modified.tzinfo is None:
-#                 last_modified = last_modified.replace(
-#                     tzinfo=datetime.timezone.utc
-#                 )
-#             else:
-#                 last_modified = last_modified.astimezone(
-#                     datetime.timezone.utc
-#                 )
+            if last_modified.tzinfo is None:
+                last_modified = last_modified.replace(
+                    tzinfo=datetime.timezone.utc
+                )
+            else:
+                last_modified = last_modified.astimezone(
+                    datetime.timezone.utc
+                )
 
-#             days_elapsed = business_days(last_modified, now_utc)
+            days_elapsed = business_days(last_modified, now_utc)
 
-#             if days_elapsed >= retention_days:
-#                 file_client = file_system_client.get_file_client(path.name)
-#                 file_client.delete_file()
+            if days_elapsed >= retention_days:
+                file_client = file_system_client.get_file_client(path.name)
+                file_client.delete_file()
 
-#                 logger.info(
-#                     f"Eliminado archivo: {path.name} | "
-#                     f"Días hábiles transcurridos: {days_elapsed}"
-#                 )
+                logger.info(
+                    f"Eliminado archivo: {path.name} | "
+                    f"Días hábiles transcurridos: {days_elapsed}"
+                )
 
-#                 deleted_count += 1
+                deleted_count += 1
 
-#         logger.info(
-#             f"Limpieza completada. {deleted_count} archivos eliminados."
-#         )
+        logger.info(
+            f"Limpieza completada. {deleted_count} archivos eliminados."
+        )
 
-#     except Exception as e:
-#         logger.error(
-#             f"Error en limpieza automática: {str(e)}",
-#             exc_info=True
-#         )
-#         raise
+    except Exception as e:
+        logger.error(
+            f"Error en limpieza automática: {str(e)}",
+            exc_info=True
+        )
+        raise

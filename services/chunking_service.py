@@ -62,11 +62,11 @@ class ChunkingService:
                 chunks.append(chunk)
 
             # ---------------------------
-            # ✅ PROGRESO + OVERLAP SEGURO
+            # PROGRESO + OVERLAP SEGURO
             # ---------------------------
             next_start = max(0, end - self.overlap)
 
-            # ✅ Alinear a inicio de palabra (evita "inal." por caer dentro de "final.")
+            # Alinear a inicio de palabra (evita "inal." por caer dentro de "final.")
             if 0 < next_start < text_len:
                 # Si estamos en medio de una palabra (no whitespace antes y no whitespace en el índice)
                 if (not text[next_start].isspace()) and (not text[next_start - 1].isspace()):
