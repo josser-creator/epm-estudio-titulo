@@ -165,7 +165,6 @@ def test_process_blob_empty_blob():
         # Verificamos que NO se creó el processor
         MockProcessorClass.assert_not_called()
 
-
 # =========================================================
 # Test process_blob con error en procesamiento
 # =========================================================
