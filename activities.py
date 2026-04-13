@@ -137,27 +137,6 @@ def evaluar_viabilidad(resultados: List[Dict], field_dicts: Dict[str, Dict]) -> 
         decision_log.append("Regla 1: Matrícula ausente → RECHAZADO")
 
     # -------------------------------------------------
-    # Regla 2: Concepto jurídico
-    # -------------------------------------------------
-    concepto = estudio_dict.get("VIV_conceptoJuridico", "").lower()
-
-    if "desfavorable" in concepto:
-        status = "REJECTED"
-        reasons.append({
-            "code": "CONCEPTO_DESFAVORABLE",
-            "message": "El concepto jurídico del estudio de títulos es desfavorable"
-        })
-        decision_log.append("Regla 2: Concepto desfavorable → RECHAZADO")
-
-    elif "favorable" not in concepto and status != "REJECTED":
-        status = "CONDITIONAL"
-        reasons.append({
-            "code": "CONCEPTO_NO_CLARO",
-            "message": "El concepto jurídico no es claro o no se encontró"
-        })
-        decision_log.append("Regla 2: Concepto no claro → CONDICIONAL")
-
-    # -------------------------------------------------
     # Regla 3: Gravámenes vigentes
     # -------------------------------------------------
     if settings.reject_if_encumbrances:
