@@ -21,8 +21,6 @@ Debes extraer los siguientes campos del documento. Para cada campo, se indica el
 12. **VIV_medidaCautelar** (Text): Medidas cautelares vigentes (embargos, demandas, prohibiciones, etc.).
 13. **VIV_tenencia** (Text): Información sobre la tenencia del inmueble (posesión, mera tenencia, arrendamiento, etc.).
 14. **VIV_documentosRevisados** (Text): Enumera todos los documentos que fueron revisados para elaborar el estudio (certificado de tradición, escrituras, poderes, paz y salvos, etc.). Debe ser un texto extenso si es necesario.
-15. **VIV_conceptoJuridico** (Text): Concepto sobre la viabilidad del negocio (favorable, desfavorable, condicionado).
-16. **VIV_avaluo_comercial** (Number): Valor del avalúo comercial del inmueble (número decimal, sin separadores).
 
 ## FORMATO DE SALIDA
 Debes devolver un objeto JSON con una única clave "PanelFields", cuyo valor es una lista de objetos, cada uno con los siguientes campos:
